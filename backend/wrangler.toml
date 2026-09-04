@@ -1,0 +1,21 @@
+name = "race-hub-backend"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+
+# Создать реальную БД: `npx wrangler d1 create race_hub_db`
+# и вставить сюда возвращённый database_id перед деплоем.
+[[d1_databases]]
+binding = "DB"
+database_name = "race_hub_db"
+database_id = "REPLACE_WITH_REAL_D1_DATABASE_ID"
+
+# Секрет задаётся отдельно и не хранится в репозитории:
+#   npx wrangler secret put TELEGRAM_BOT_TOKEN
+#
+# Пример cron для будущего Этапа (уведомления, обновление кэша):
+# [triggers]
+# crons = ["*/15 * * * *"]

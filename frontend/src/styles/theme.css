@@ -1,0 +1,57 @@
+/*
+ * Тема приложения. Собственная нейтральная айдентика (ТЗ п.14, 69.2):
+ * не копирует Formula 1 / Box Box. Тёмная тема — основной визуальный ориентир,
+ * плюс поддержка Telegram light/dark через переменные Telegram.WebApp.themeParams.
+ */
+
+:root {
+  --rh-accent: #3ddc84; /* собственный accent color, не F1-red */
+  --rh-accent-contrast: #06120b;
+
+  --rh-radius-sm: 8px;
+  --rh-radius-md: 14px;
+  --rh-radius-lg: 20px;
+
+  --rh-space-1: 4px;
+  --rh-space-2: 8px;
+  --rh-space-3: 12px;
+  --rh-space-4: 16px;
+  --rh-space-5: 24px;
+  --rh-space-6: 32px;
+
+  --rh-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Тёмная тема по умолчанию (fallback, если Telegram параметры недоступны) */
+:root,
+[data-rh-theme="dark"] {
+  --rh-bg: #0e1013;
+  --rh-bg-secondary: #16191d;
+  --rh-bg-card: #1b1f24;
+  --rh-text-primary: #f2f3f5;
+  --rh-text-secondary: #9aa0a6;
+  --rh-border: #262b31;
+  --rh-hint: #6b7278;
+  --rh-danger: #ff5a5f;
+  --rh-success: #3ddc84;
+  --rh-warning: #f5a623;
+}
+
+[data-rh-theme="light"] {
+  --rh-bg: #f5f6f8;
+  --rh-bg-secondary: #ffffff;
+  --rh-bg-card: #ffffff;
+  --rh-text-primary: #14171a;
+  --rh-text-secondary: #5b6169;
+  --rh-border: #e4e6e9;
+  --rh-hint: #8a9096;
+  --rh-danger: #d32f2f;
+  --rh-success: #1f9d55;
+  --rh-warning: #b9770e;
+}
+
+/*
+ * Режим "telegram": значения подставляются JS-ом из Telegram.WebApp.themeParams
+ * (см. src/telegram/theme.ts) как inline CSS custom properties на :root,
+ * поверх light/dark fallback выше.
+ */

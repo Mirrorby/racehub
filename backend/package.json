@@ -1,0 +1,21 @@
+{
+  "name": "race-hub-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 execute race_hub_db --local --file=./src/db/schema.sql",
+    "db:migrate:remote": "wrangler d1 execute race_hub_db --remote --file=./src/db/schema.sql"
+  },
+  "dependencies": {
+    "itty-router": "^5.0.18"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.0.0"
+  }
+}

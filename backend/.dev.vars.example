@@ -1,0 +1,2 @@
+# Скопировать в .dev.vars (не коммитить!) для `npx wrangler dev` локально.
+TELEGRAM_BOT_TOKEN=123456:your-bot-token-from-BotFather
