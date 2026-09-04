@@ -11,7 +11,7 @@ ENVIRONMENT = "development"
 [[d1_databases]]
 binding = "DB"
 database_name = "race_hub_db"
-database_id = "REPLACE_WITH_REAL_D1_DATABASE_ID"
+database_id = "56e32c0e-96dd-445f-818e-cd45b8f8b130"
 
 # Секрет задаётся отдельно и не хранится в репозитории:
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN
