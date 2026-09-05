@@ -1,0 +1,11 @@
+name = "race-hub-frontend"
+compatibility_date = "2024-11-01"
+
+# Чисто статический воркер — без собственного worker-скрипта, только
+# отдаёт собранный Vite-билд. React Router работает на client-side
+# роутинге, поэтому на несуществующих путях (например /calendar при
+# прямом заходе) должен отдаваться index.html, а не 404 — это и делает
+# not_found_handling = "single-page-application".
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
