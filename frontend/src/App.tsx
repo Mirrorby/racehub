@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { telegram, isRunningInTelegram, getRawInitData } from "./telegram/webApp";
 import { applyTheme, subscribeToTelegramThemeChanges } from "./telegram/theme";
 import { authenticateWithTelegram } from "./api/auth";
-import { setSessionToken } from "./api/client";
+import { ApiError, setSessionToken } from "./api/client";
 import { Splash } from "./pages/Splash";
 import { Home } from "./pages/Home";
 import { Calendar } from "./pages/Calendar";
@@ -15,9 +15,37 @@ import { ErrorState } from "./components/ErrorState";
 
 type BootStatus = "loading" | "ready" | "error" | "not_in_telegram";
 
+/**
+ * До этого места ошибки авторизации схлопывались в одно generic-сообщение
+ * "Couldn't sign you in" независимо от причины — что делает отладку на
+ * реальном телефоне (без консоли/логов) практически невозможной. Достаём
+ * реальный текст: тело ответа backend для ApiError, либо явную пометку
+ * сетевой ошибки (недоступен backend / не тот VITE_API_BASE_URL / CORS).
+ */
+function describeAuthError(err: unknown): string {
+  if (err instanceof ApiError) {
+    let backendMessage = err.message;
+    try {
+      const parsed = JSON.parse(err.message) as { error?: string };
+      if (parsed.error) backendMessage = parsed.error;
+    } catch {
+      // тело не JSON — оставляем как есть
+    }
+    return `Sign-in failed (${err.status}): ${backendMessage}`;
+  }
+  if (err instanceof TypeError) {
+    // fetch() бросает TypeError при сетевых сбоях (недоступен хост, CORS
+    // заблокировал запрос ещё до ответа, DNS и т.п.) — response тут нет,
+    // поэтому ApiError не создаётся.
+    return "Can't reach the backend. Check VITE_API_BASE_URL and that the backend Worker is deployed.";
+  }
+  return `Unexpected error: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 export function App() {
   const [status, setStatus] = useState<BootStatus>("loading");
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [authError, setAuthError] = useState<string>("");
 
   useEffect(() => {
     applyTheme("telegram");
@@ -39,7 +67,9 @@ export function App() {
         setSessionToken(auth.sessionToken);
         setNeedsOnboarding(auth.isNewUser);
         setStatus("ready");
-      } catch {
+      } catch (err) {
+        console.error("Telegram auth failed:", err);
+        setAuthError(describeAuthError(err));
         setStatus("error");
       }
     }
@@ -56,7 +86,7 @@ export function App() {
     return (
       <div className="rh-app-shell">
         <div className="rh-content">
-          <ErrorState message="Couldn't sign you in. Please reopen the app from Telegram." onRetry={() => window.location.reload()} />
+          <ErrorState message={authError} onRetry={() => window.location.reload()} />
         </div>
       </div>
     );
