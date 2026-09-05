@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS notification_settings (
 CREATE TABLE IF NOT EXISTS notification_log (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  notification_key TEXT NOT NULL,   -- например 'race:2026_05:60min'
+  notification_key TEXT NOT NULL,
   sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   UNIQUE (user_id, notification_key)
 );
@@ -73,7 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 -- Заполняется на Этапе 2 вместе с providers/jolpica.ts.
 CREATE TABLE IF NOT EXISTS api_cache (
   cache_key TEXT PRIMARY KEY,
-  payload TEXT NOT NULL,          -- JSON
+  payload TEXT NOT NULL,
   fetched_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
