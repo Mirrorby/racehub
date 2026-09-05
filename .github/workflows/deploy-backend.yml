@@ -6,10 +6,8 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
-  # Позволяет запустить деплой вручную из вкладки Actions без пуша
   workflow_dispatch: {}
 
-# Не даём двум деплоям одного и того же воркера идти параллельно
 concurrency:
   group: deploy-backend-${{ github.ref }}
   cancel-in-progress: true
@@ -20,11 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Явно фиксируем NODE_ENV, чтобы `npm ci` гарантированно поставил
+    # devDependencies (typescript, wrangler) независимо от того, что
+    # выставлено на уровне организации/раннера по умолчанию.
+    env:
+      NODE_ENV: development
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # typecheck перед деплоем, чтобы не выкатывать заведомо битый воркер
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -34,7 +36,7 @@ jobs:
 
       - name: Install deps
         working-directory: backend
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Typecheck
         working-directory: backend
@@ -46,4 +48,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: backend
+          # Совпадает с диапазоном из backend/package.json (^4.0.0).
+          # Если Wrangler уже стоит локально после `npm ci` — action его
+          # переиспользует и не будет ничего ставить заново.
+          wranglerVersion: "4"
+          packageManager: npm
           command: deploy

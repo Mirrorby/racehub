@@ -16,3 +16,12 @@ export function jsonResponse(data: unknown, status = 200): Response {
     },
   });
 }
+
+/**
+ * Единый формат ответа об ошибке — { error: string } — чтобы фронту не
+ * приходилось угадывать форму тела в зависимости от того, где именно
+ * запрос упал (роут, requireAuth, необработанное исключение).
+ */
+export function errorResponse(message: string, status = 500): Response {
+  return jsonResponse({ error: message }, status);
+}
