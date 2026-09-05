@@ -5,11 +5,21 @@ import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { RaceCard } from "../components/RaceCard";
 import { SessionRow } from "../components/SessionRow";
+import { StandingRow } from "../components/StandingRow";
 import { useBootstrap } from "../hooks/useBootstrap";
+import { useStandings } from "../hooks/useStandings";
+
+const TOP_STANDINGS_PREVIEW = 3;
 
 export function Home() {
   const { data, isLoading, isError, refetch } = useBootstrap();
+  const standings = useStandings("drivers");
   const navigate = useNavigate();
+
+  const favoriteDriverId = data?.profile.preferences.favoriteDriverId ?? null;
+  const favoriteStanding = favoriteDriverId
+    ? standings.data?.standings.find((s) => s.driver?.id === favoriteDriverId)
+    : undefined;
 
   return (
     <>
@@ -29,7 +39,7 @@ export function Home() {
           <>
             <div className="rh-section-title">Next</div>
             {data.nextRace ? (
-              <RaceCard weekend={data.nextRace} onOpen={() => navigate(`/race/${data.nextRace!.id}`)} />
+              <RaceCard weekend={data.nextRace} onOpen={() => navigate(`/calendar`)} />
             ) : (
               <EmptyState message="Next race data isn't available yet. Check back soon." />
             )}
@@ -46,15 +56,19 @@ export function Home() {
             )}
 
             <div className="rh-section-title">Your driver</div>
-            {data.profile.preferences.favoriteDriverId ? (
-              <div className="rh-card" style={{ color: "var(--rh-text-secondary)" }}>
-                Driver stats will appear here once the data layer is connected.
-              </div>
+            {favoriteDriverId ? (
+              favoriteStanding ? (
+                <div className="rh-card" style={{ padding: 0 }}>
+                  <StandingRow standing={favoriteStanding} />
+                </div>
+              ) : (
+                <Skeleton height={48} />
+              )
             ) : (
               <EmptyState
                 message="Choose your favourite driver"
                 action={
-                  <button className="rh-btn-primary" style={{ width: "auto" }} onClick={() => navigate("/drivers")}>
+                  <button className="rh-btn-primary" style={{ width: "auto" }} onClick={() => navigate("/more")}>
                     Select driver
                   </button>
                 }
@@ -62,7 +76,15 @@ export function Home() {
             )}
 
             <div className="rh-section-title">Championship</div>
-            <EmptyState message="Standings will appear here once the data layer is connected." />
+            {standings.isLoading && <Skeleton height={40 * TOP_STANDINGS_PREVIEW} />}
+            {standings.isError && <ErrorState onRetry={() => standings.refetch()} />}
+            {standings.data && (
+              <div className="rh-card" style={{ padding: 0, cursor: "pointer" }} onClick={() => navigate("/standings")}>
+                {standings.data.standings.slice(0, TOP_STANDINGS_PREVIEW).map((standing) => (
+                  <StandingRow key={standing.driver?.id ?? standing.position} standing={standing} />
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

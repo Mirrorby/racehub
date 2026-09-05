@@ -1,24 +1,46 @@
 import { useState } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { EmptyState } from "../components/EmptyState";
-
-type Tab = "drivers" | "constructors";
-
-// TODO(Этап 2): подключить /api/standings/{drivers|constructors}?season=YYYY.
+import { ErrorState } from "../components/ErrorState";
+import { Skeleton } from "../components/Skeleton";
+import { StandingRow } from "../components/StandingRow";
+import { useStandings } from "../hooks/useStandings";
+import type { StandingsType } from "../api/standings";
 
 export function Standings() {
-  const [tab, setTab] = useState<Tab>("drivers");
+  const [tab, setTab] = useState<StandingsType>("drivers");
+  const { data, isLoading, isError, refetch } = useStandings(tab);
 
   return (
     <>
-      <AppHeader title="Standings" />
+      <AppHeader title={data ? `Standings — ${data.season}` : "Standings"} />
       <div className="rh-content">
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <TabButton active={tab === "drivers"} onClick={() => setTab("drivers")} label="Drivers" />
           <TabButton active={tab === "constructors"} onClick={() => setTab("constructors")} label="Constructors" />
         </div>
 
-        <EmptyState message={`${tab === "drivers" ? "Driver" : "Constructor"} standings will appear here once the data layer is connected.`} />
+        {isLoading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Skeleton height={40} />
+            <Skeleton height={40} />
+            <Skeleton height={40} />
+          </div>
+        )}
+
+        {isError && <ErrorState onRetry={() => refetch()} />}
+
+        {data && data.standings.length === 0 && (
+          <EmptyState message={`${tab === "drivers" ? "Driver" : "Constructor"} standings aren't available yet.`} />
+        )}
+
+        {data && data.standings.length > 0 && (
+          <div className="rh-card" style={{ padding: 0 }}>
+            {data.standings.map((standing) => (
+              <StandingRow key={standing.driver?.id ?? standing.constructor?.id ?? standing.position} standing={standing} />
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

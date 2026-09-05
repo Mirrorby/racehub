@@ -67,3 +67,47 @@ export interface BootstrapResponse {
   profile: UserProfile;
   nextRace: RaceWeekend | null;
 }
+
+// Соответствует frontend/src/types/domain.ts::Driver/Constructor/Standing.
+export interface Driver {
+  id: string;
+  code: string;
+  number: number | null;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  nationality: string;
+  constructorId: string;
+  constructorName: string;
+  teamColor: string;
+}
+
+export interface Constructor {
+  id: string;
+  name: string;
+  nationality: string;
+  color: string;
+}
+
+export interface Standing {
+  position: number;
+  points: number;
+  wins: number;
+  gapToLeader: number | null;
+  movement: "up" | "down" | "same" | "unknown";
+  driver?: Pick<Driver, "id" | "fullName" | "code">;
+  constructor?: Pick<Constructor, "id" | "name">;
+}
+
+export interface CalendarResponse {
+  season: number;
+  races: RaceWeekend[];
+}
+
+export type StandingsType = "drivers" | "constructors";
+
+export interface StandingsResponse {
+  season: number;
+  type: StandingsType;
+  standings: Standing[];
+}

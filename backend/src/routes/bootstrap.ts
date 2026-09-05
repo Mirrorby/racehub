@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { getUserProfile } from "../lib/userRepository";
 import { requireUserId } from "../lib/requireAuth";
 import { errorResponse, jsonResponse } from "../lib/http";
+import { getNextRaceWeekend } from "../services/calendarService";
 import type { BootstrapResponse } from "../types";
 
 export async function handleBootstrap(request: Request, env: Env): Promise<Response> {
@@ -12,12 +13,16 @@ export async function handleBootstrap(request: Request, env: Env): Promise<Respo
     return errorResponse("User not found", 404);
   }
 
-  // TODO(Этап 2): подставить реальный nextRace из providers/jolpica.ts +
-  // cache-слоя (api_cache) вместо null.
-  const response: BootstrapResponse = {
-    profile,
-    nextRace: null,
-  };
+  let nextRace: BootstrapResponse["nextRace"] = null;
+  try {
+    nextRace = await getNextRaceWeekend(env);
+  } catch (err) {
+    // Джолпика недоступна и кэш пуст (напр. первый холодный запуск) —
+    // не роняем весь bootstrap/логин из-за этого, просто отдаём без nextRace.
+    console.error("Failed to resolve nextRace, falling back to null:", err);
+  }
+
+  const response: BootstrapResponse = { profile, nextRace };
 
   return jsonResponse(response);
 }
