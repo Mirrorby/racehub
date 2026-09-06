@@ -81,6 +81,45 @@ export async function findOrCreateUser(
   return { userId, isNewUser: true };
 }
 
+export async function updateUserPreferences(
+  env: Env,
+  userId: string,
+  patch: { favoriteDriverId?: string | null; favoriteConstructorId?: string | null },
+): Promise<UserPreferences> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+
+  if (patch.favoriteDriverId !== undefined) {
+    sets.push("favorite_driver_id = ?");
+    values.push(patch.favoriteDriverId);
+  }
+  if (patch.favoriteConstructorId !== undefined) {
+    sets.push("favorite_constructor_id = ?");
+    values.push(patch.favoriteConstructorId);
+  }
+
+  if (sets.length > 0) {
+    sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    values.push(userId);
+    await env.DB.prepare(`UPDATE user_preferences SET ${sets.join(", ")} WHERE user_id = ?`)
+      .bind(...values)
+      .run();
+  }
+
+  const row = await env.DB.prepare(
+    "SELECT favorite_driver_id, favorite_constructor_id, theme_mode, time_format FROM user_preferences WHERE user_id = ?",
+  )
+    .bind(userId)
+    .first<PreferencesRow>();
+
+  return {
+    favoriteDriverId: row?.favorite_driver_id ?? null,
+    favoriteConstructorId: row?.favorite_constructor_id ?? null,
+    themeMode: row?.theme_mode ?? "telegram",
+    timeFormat: row?.time_format ?? "24h",
+  };
+}
+
 export async function getUserProfile(env: Env, userId: string): Promise<UserProfile | null> {
   const userRow = await env.DB.prepare("SELECT id, telegram_user_id, timezone, onboarding_completed FROM users WHERE id = ?")
     .bind(userId)

@@ -3,12 +3,13 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { telegram, isRunningInTelegram, getRawInitData } from "./telegram/webApp";
 import { applyTheme, subscribeToTelegramThemeChanges } from "./telegram/theme";
 import { authenticateWithTelegram } from "./api/auth";
-import { ApiError, setSessionToken } from "./api/client";
+import { ApiError, API_BASE_URL, setSessionToken } from "./api/client";
 import { Splash } from "./pages/Splash";
 import { Home } from "./pages/Home";
 import { Calendar } from "./pages/Calendar";
 import { Standings } from "./pages/Standings";
 import { More } from "./pages/More";
+import { SelectFavorite } from "./pages/SelectFavorite";
 import { Onboarding } from "./pages/Onboarding";
 import { BottomNavigation } from "./components/BottomNavigation";
 import { ErrorState } from "./components/ErrorState";
@@ -23,6 +24,7 @@ type BootStatus = "loading" | "ready" | "error" | "not_in_telegram";
  * сетевой ошибки (недоступен backend / не тот VITE_API_BASE_URL / CORS).
  */
 function describeAuthError(err: unknown): string {
+  const suffix = ` — API base: ${API_BASE_URL}`;
   if (err instanceof ApiError) {
     let backendMessage = err.message;
     try {
@@ -31,15 +33,15 @@ function describeAuthError(err: unknown): string {
     } catch {
       // тело не JSON — оставляем как есть
     }
-    return `Sign-in failed (${err.status}): ${backendMessage}`;
+    return `Sign-in failed (${err.status}): ${backendMessage}${suffix}`;
   }
   if (err instanceof TypeError) {
     // fetch() бросает TypeError при сетевых сбоях (недоступен хост, CORS
     // заблокировал запрос ещё до ответа, DNS и т.п.) — response тут нет,
     // поэтому ApiError не создаётся.
-    return "Can't reach the backend. Check VITE_API_BASE_URL and that the backend Worker is deployed.";
+    return `Can't reach the backend. Check VITE_API_BASE_URL and that the backend Worker is deployed.${suffix}`;
   }
-  return `Unexpected error: ${err instanceof Error ? err.message : String(err)}`;
+  return `Unexpected error: ${err instanceof Error ? err.message : String(err)}${suffix}`;
 }
 
 export function App() {
@@ -117,6 +119,8 @@ export function App() {
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/standings" element={<Standings />} />
         <Route path="/more" element={<More />} />
+        <Route path="/drivers" element={<SelectFavorite type="drivers" />} />
+        <Route path="/constructors" element={<SelectFavorite type="constructors" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNavigation />

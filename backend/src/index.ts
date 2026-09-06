@@ -4,6 +4,7 @@ import { handleTelegramAuth } from "./routes/auth";
 import { handleBootstrap } from "./routes/bootstrap";
 import { handleCalendar } from "./routes/calendar";
 import { handleStandings } from "./routes/standings";
+import { handleUpdatePreferences } from "./routes/preferences";
 import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
 import { UnauthorizedError } from "./lib/requireAuth";
 
@@ -21,8 +22,10 @@ router.get("/api/calendar", (request, env: Env) => handleCalendar(request, env))
 
 router.get("/api/standings/:type", (request, env: Env) => handleStandings(request, env, request.params.type));
 
+router.put("/api/preferences", (request, env: Env) => handleUpdatePreferences(request, env));
+
 // TODO(Этап 2): /api/race/:id, /api/drivers, /api/constructors
-// TODO(Этап 3): /api/preferences (PUT), /api/notifications/settings (PUT)
+// TODO(Этап 3): PUT /api/notifications/settings
 
 router.all("*", () => errorResponse("Not found", 404));
 
