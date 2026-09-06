@@ -13,9 +13,13 @@ binding = "DB"
 database_name = "race_hub_db"
 database_id = "56e32c0e-96dd-445f-818e-cd45b8f8b130"
 
+# Проверка "не пора ли напомнить о сессии" — раз в 5 минут. Идемпотентность
+# обеспечивает notification_log (UNIQUE(user_id, notification_key)), так
+# что более частый/редкий интервал влияет только на точность напоминания
+# (± половина интервала), а не на риск дублей.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # Секрет задаётся отдельно и не хранится в репозитории:
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN
-#
-# Пример cron для будущего Этапа (уведомления, обновление кэша):
-# [triggers]
-# crons = ["*/15 * * * *"]
+# (или Cloudflare Dashboard → Worker → Settings → Variables and Secrets)

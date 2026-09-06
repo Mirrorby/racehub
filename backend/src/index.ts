@@ -5,6 +5,8 @@ import { handleBootstrap } from "./routes/bootstrap";
 import { handleCalendar } from "./routes/calendar";
 import { handleStandings } from "./routes/standings";
 import { handleUpdatePreferences } from "./routes/preferences";
+import { handleUpdateNotificationSettings } from "./routes/notifications";
+import { runSessionReminders } from "./notifications/sessionReminders";
 import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
 import { UnauthorizedError } from "./lib/requireAuth";
 
@@ -24,8 +26,9 @@ router.get("/api/standings/:type", (request, env: Env) => handleStandings(reques
 
 router.put("/api/preferences", (request, env: Env) => handleUpdatePreferences(request, env));
 
+router.put("/api/notifications/settings", (request, env: Env) => handleUpdateNotificationSettings(request, env));
+
 // TODO(Этап 2): /api/race/:id, /api/drivers, /api/constructors
-// TODO(Этап 3): PUT /api/notifications/settings
 
 router.all("*", () => errorResponse("Not found", 404));
 
@@ -39,6 +42,14 @@ export default {
       }
       console.error("Unhandled error:", err);
       return errorResponse("Internal server error", 500);
+    }
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    try {
+      await runSessionReminders(env);
+    } catch (err) {
+      console.error("runSessionReminders failed:", err);
     }
   },
 };

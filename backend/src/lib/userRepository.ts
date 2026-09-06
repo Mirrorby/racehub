@@ -120,6 +120,78 @@ export async function updateUserPreferences(
   };
 }
 
+const NOTIFICATION_BOOLEAN_COLUMNS: Record<string, keyof NotificationSettings> = {
+  enabled: "enabled",
+  race_enabled: "raceEnabled",
+  qualifying_enabled: "qualifyingEnabled",
+  sprint_enabled: "sprintEnabled",
+  practice_enabled: "practiceEnabled",
+  results_enabled: "resultsEnabled",
+  favorite_driver_result_enabled: "favoriteDriverResultEnabled",
+  championship_change_enabled: "championshipChangeEnabled",
+};
+
+const NOTIFICATION_MINUTES_COLUMNS: Record<string, keyof NotificationSettings> = {
+  race_minutes_before: "raceMinutesBefore",
+  qualifying_minutes_before: "qualifyingMinutesBefore",
+  sprint_minutes_before: "sprintMinutesBefore",
+  practice_minutes_before: "practiceMinutesBefore",
+};
+
+export async function updateNotificationSettings(
+  env: Env,
+  userId: string,
+  patch: Partial<NotificationSettings>,
+): Promise<NotificationSettings> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+
+  for (const [column, key] of Object.entries(NOTIFICATION_BOOLEAN_COLUMNS)) {
+    if (patch[key] !== undefined) {
+      sets.push(`${column} = ?`);
+      values.push(patch[key] ? 1 : 0);
+    }
+  }
+  for (const [column, key] of Object.entries(NOTIFICATION_MINUTES_COLUMNS)) {
+    if (patch[key] !== undefined) {
+      sets.push(`${column} = ?`);
+      values.push(patch[key]);
+    }
+  }
+
+  if (sets.length > 0) {
+    sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    values.push(userId);
+    await env.DB.prepare(`UPDATE notification_settings SET ${sets.join(", ")} WHERE user_id = ?`)
+      .bind(...values)
+      .run();
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT enabled, race_enabled, race_minutes_before, qualifying_enabled, qualifying_minutes_before,
+            sprint_enabled, sprint_minutes_before, practice_enabled, practice_minutes_before,
+            results_enabled, favorite_driver_result_enabled, championship_change_enabled
+     FROM notification_settings WHERE user_id = ?`,
+  )
+    .bind(userId)
+    .first<NotificationSettingsRow>();
+
+  return {
+    enabled: Boolean(row?.enabled ?? 1),
+    raceEnabled: Boolean(row?.race_enabled ?? 1),
+    raceMinutesBefore: row?.race_minutes_before ?? 60,
+    qualifyingEnabled: Boolean(row?.qualifying_enabled ?? 1),
+    qualifyingMinutesBefore: row?.qualifying_minutes_before ?? 30,
+    sprintEnabled: Boolean(row?.sprint_enabled ?? 1),
+    sprintMinutesBefore: row?.sprint_minutes_before ?? 30,
+    practiceEnabled: Boolean(row?.practice_enabled ?? 0),
+    practiceMinutesBefore: row?.practice_minutes_before ?? 15,
+    resultsEnabled: Boolean(row?.results_enabled ?? 1),
+    favoriteDriverResultEnabled: Boolean(row?.favorite_driver_result_enabled ?? 1),
+    championshipChangeEnabled: Boolean(row?.championship_change_enabled ?? 0),
+  };
+}
+
 export async function getUserProfile(env: Env, userId: string): Promise<UserProfile | null> {
   const userRow = await env.DB.prepare("SELECT id, telegram_user_id, timezone, onboarding_completed FROM users WHERE id = ?")
     .bind(userId)

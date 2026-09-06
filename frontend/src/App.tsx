@@ -10,6 +10,7 @@ import { Calendar } from "./pages/Calendar";
 import { Standings } from "./pages/Standings";
 import { More } from "./pages/More";
 import { SelectFavorite } from "./pages/SelectFavorite";
+import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
 import { Onboarding } from "./pages/Onboarding";
 import { BottomNavigation } from "./components/BottomNavigation";
 import { ErrorState } from "./components/ErrorState";
@@ -121,6 +122,7 @@ export function App() {
         <Route path="/more" element={<More />} />
         <Route path="/drivers" element={<SelectFavorite type="drivers" />} />
         <Route path="/constructors" element={<SelectFavorite type="constructors" />} />
+        <Route path="/more/settings" element={<NotificationSettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNavigation />
