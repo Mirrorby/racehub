@@ -77,3 +77,14 @@ CREATE TABLE IF NOT EXISTS api_cache (
   fetched_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+-- Мелкое server-side состояние между тиками cron, не привязанное к
+-- конкретному пользователю/сессии (например "кто был лидером чемпионата
+-- в прошлый раз, когда мы проверяли" — чтобы уведомлять только об
+-- изменении, а не на каждый тик). Не путать с api_cache: это не TTL-кэш
+-- ответа апстрима, а именно наша собственная память.
+CREATE TABLE IF NOT EXISTS app_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);

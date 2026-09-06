@@ -8,6 +8,7 @@ import { handleStandings } from "./routes/standings";
 import { handleUpdatePreferences } from "./routes/preferences";
 import { handleUpdateNotificationSettings } from "./routes/notifications";
 import { runSessionReminders } from "./notifications/sessionReminders";
+import { runResultNotifications } from "./notifications/resultNotifications";
 import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
 import { UnauthorizedError } from "./lib/requireAuth";
 
@@ -51,6 +52,12 @@ export default {
       await runSessionReminders(env);
     } catch (err) {
       console.error("runSessionReminders failed:", err);
+    }
+
+    try {
+      await runResultNotifications(env);
+    } catch (err) {
+      console.error("runResultNotifications failed:", err);
     }
   },
 };
