@@ -7,6 +7,7 @@ import { ApiError, API_BASE_URL, setSessionToken } from "./api/client";
 import { Splash } from "./pages/Splash";
 import { Home } from "./pages/Home";
 import { Calendar } from "./pages/Calendar";
+import { RaceDetail } from "./pages/RaceDetail";
 import { Standings } from "./pages/Standings";
 import { More } from "./pages/More";
 import { SelectFavorite } from "./pages/SelectFavorite";
@@ -118,6 +119,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/race/:id" element={<RaceDetail />} />
         <Route path="/standings" element={<Standings />} />
         <Route path="/more" element={<More />} />
         <Route path="/drivers" element={<SelectFavorite type="drivers" />} />

@@ -165,3 +165,43 @@ export async function getConstructorStandings(): Promise<{ season: number; stand
   const { season, StandingsLists } = data.MRData.StandingsTable;
   return { season: Number(season), standings: StandingsLists[0]?.ConstructorStandings ?? [] };
 }
+
+export interface RawResult {
+  position: string;
+  positionText: string;
+  points: string;
+  grid: string;
+  laps: string;
+  status: string;
+  Driver: RawDriver;
+  Constructor: RawConstructor;
+}
+
+export interface RawQualifyingResult {
+  position: string;
+  Driver: RawDriver;
+  Constructor: RawConstructor;
+  Q1?: string;
+  Q2?: string;
+  Q3?: string;
+}
+
+interface ResultsPayload {
+  RaceTable: { season: string; Races: Array<{ Results: RawResult[] }> };
+}
+
+interface QualifyingPayload {
+  RaceTable: { season: string; Races: Array<{ QualifyingResults: RawQualifyingResult[] }> };
+}
+
+/** Финишная классификация конкретного этапа. Пусто, пока гонка не завершена. */
+export async function getRaceResults(round: number): Promise<RawResult[]> {
+  const data = await fetchJson<MRDataEnvelope<ResultsPayload>>(`/current/${round}/results.json`);
+  return data.MRData.RaceTable.Races[0]?.Results ?? [];
+}
+
+/** Результаты квалификации конкретного этапа. Пусто, пока квала не завершена. */
+export async function getQualifyingResults(round: number): Promise<RawQualifyingResult[]> {
+  const data = await fetchJson<MRDataEnvelope<QualifyingPayload>>(`/current/${round}/qualifying.json`);
+  return data.MRData.RaceTable.Races[0]?.QualifyingResults ?? [];
+}

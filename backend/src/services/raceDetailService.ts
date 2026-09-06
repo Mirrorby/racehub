@@ -1,0 +1,41 @@
+import type { Env } from "../env";
+import { getOrRefresh } from "../lib/cache";
+import { getQualifyingResults, getRaceResults } from "../providers/jolpica";
+import { mapQualifyingResults, mapRaceResults } from "../mappers/raceResults";
+import { getSeasonCalendar } from "./calendarService";
+import type { RaceDetailResponse } from "../types";
+
+// Результаты в течение уик-энда могут дозаполняться (пенальти после
+// разбора стюардов и т.п.), поэтому TTL короткий — 5 минут. Как только
+// станет проще отличать "гонка была неделю назад" от "гонка только что
+// закончилась", можно удлинять TTL для давних этапов, но пока не критично.
+const RESULTS_TTL_SECONDS = 5 * 60;
+
+export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailResponse | null> {
+  const { races } = await getSeasonCalendar(env);
+  const weekend = races.find((race) => race.id === id);
+  if (!weekend) return null;
+
+  const qualifyingSession = weekend.sessions.find((s) => s.type === "qualifying");
+  const raceSession = weekend.sessions.find((s) => s.type === "race");
+
+  const [qualifyingResults, raceResults] = await Promise.all([
+    qualifyingSession && qualifyingSession.status !== "upcoming"
+      ? getOrRefresh(env, `qualifying:${id}`, RESULTS_TTL_SECONDS, () => getQualifyingResults(weekend.round)).then(
+          mapQualifyingResults,
+        )
+      : Promise.resolve(null),
+    raceSession && raceSession.status !== "upcoming"
+      ? getOrRefresh(env, `results:${id}`, RESULTS_TTL_SECONDS, () => getRaceResults(weekend.round)).then(mapRaceResults)
+      : Promise.resolve(null),
+  ]);
+
+  // Апстрим публикует официальные результаты не мгновенно после финиша —
+  // пока их нет, отдаём null, а не пустой массив, чтобы фронт мог
+  // отличить "результатов ещё нет" от "гонка не началась".
+  return {
+    weekend,
+    qualifyingResults: qualifyingResults && qualifyingResults.length > 0 ? qualifyingResults : null,
+    raceResults: raceResults && raceResults.length > 0 ? raceResults : null,
+  };
+}

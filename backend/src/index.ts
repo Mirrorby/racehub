@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import { handleTelegramAuth } from "./routes/auth";
 import { handleBootstrap } from "./routes/bootstrap";
 import { handleCalendar } from "./routes/calendar";
+import { handleRaceDetail } from "./routes/race";
 import { handleStandings } from "./routes/standings";
 import { handleUpdatePreferences } from "./routes/preferences";
 import { handleUpdateNotificationSettings } from "./routes/notifications";
@@ -22,13 +23,13 @@ router.get("/api/bootstrap", (request, env: Env) => handleBootstrap(request, env
 
 router.get("/api/calendar", (request, env: Env) => handleCalendar(request, env));
 
+router.get("/api/race/:id", (request, env: Env) => handleRaceDetail(request, env, request.params.id));
+
 router.get("/api/standings/:type", (request, env: Env) => handleStandings(request, env, request.params.type));
 
 router.put("/api/preferences", (request, env: Env) => handleUpdatePreferences(request, env));
 
 router.put("/api/notifications/settings", (request, env: Env) => handleUpdateNotificationSettings(request, env));
-
-// TODO(Этап 2): /api/race/:id, /api/drivers, /api/constructors
 
 router.all("*", () => errorResponse("Not found", 404));
 

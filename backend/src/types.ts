@@ -111,3 +111,29 @@ export interface StandingsResponse {
   type: StandingsType;
   standings: Standing[];
 }
+
+export interface RaceResultEntry {
+  position: number;
+  positionText: string; // "1".."20" | "R" (retired) | "D" (disqualified) и т.п.
+  driver: Pick<Driver, "id" | "fullName" | "code">;
+  constructor: Pick<Constructor, "id" | "name">;
+  grid: number;
+  laps: number;
+  status: string; // "Finished" | "+1 Lap" | "Retired" | ... (сырой текст Ergast)
+  points: number;
+}
+
+export interface QualifyingResultEntry {
+  position: number;
+  driver: Pick<Driver, "id" | "fullName" | "code">;
+  constructor: Pick<Constructor, "id" | "name">;
+  q1: string | null;
+  q2: string | null;
+  q3: string | null;
+}
+
+export interface RaceDetailResponse {
+  weekend: RaceWeekend;
+  raceResults: RaceResultEntry[] | null;
+  qualifyingResults: QualifyingResultEntry[] | null;
+}

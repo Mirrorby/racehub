@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
@@ -26,6 +27,7 @@ function raceDate(weekend: RaceWeekend): string {
 
 function RaceListItem({ weekend }: { weekend: RaceWeekend }) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <div className="rh-card" style={{ padding: 0 }}>
@@ -62,6 +64,22 @@ function RaceListItem({ weekend }: { weekend: RaceWeekend }) {
           {weekend.sessions.map((session) => (
             <SessionRow key={session.type} session={session} />
           ))}
+          <button
+            onClick={() => navigate(`/race/${weekend.id}`)}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              background: "none",
+              border: "none",
+              borderTop: "1px solid var(--rh-border)",
+              cursor: "pointer",
+              color: "var(--rh-accent)",
+              fontWeight: 600,
+              padding: "12px 16px",
+            }}
+          >
+            Details →
+          </button>
         </div>
       )}
     </div>

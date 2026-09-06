@@ -39,7 +39,7 @@ export function Home() {
           <>
             <div className="rh-section-title">Next</div>
             {data.nextRace ? (
-              <RaceCard weekend={data.nextRace} onOpen={() => navigate(`/calendar`)} />
+              <RaceCard weekend={data.nextRace} onOpen={() => navigate(`/race/${data.nextRace!.id}`)} />
             ) : (
               <EmptyState message="Next race data isn't available yet. Check back soon." />
             )}
@@ -49,7 +49,7 @@ export function Home() {
                 <div className="rh-section-title">Weekend</div>
                 <div className="rh-card">
                   {data.nextRace.sessions.map((session) => (
-                    <SessionRow key={session.type} session={session} />
+                    <SessionRow key={session.type} session={session} onOpen={() => navigate(`/race/${data.nextRace!.id}`)} />
                   ))}
                 </div>
               </>
