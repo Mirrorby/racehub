@@ -22,3 +22,17 @@ export async function getNextRaceWeekend(env: Env): Promise<RaceWeekend | null> 
   // не "completed" и есть следующий/текущий уик-энд.
   return races.find((race) => race.status !== "completed") ?? null;
 }
+
+/**
+ * Ближайшая к "сейчас" гонка, чья сессия race уже стартовала (т.е. могла
+ * завершиться) — нужна и для result-based уведомлений, и для live-standings
+ * (сведение с OpenF1 требует знать "какая именно гонка только что прошла").
+ */
+export async function getMostRecentStartedRace(env: Env, now: Date = new Date()): Promise<RaceWeekend | null> {
+  const { races } = await getSeasonCalendar(env);
+  const started = races.filter((race) => {
+    const raceSession = race.sessions.find((s) => s.type === "race");
+    return raceSession && new Date(raceSession.startUtc) <= now;
+  });
+  return started.length > 0 ? started[started.length - 1] : null;
+}

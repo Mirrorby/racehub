@@ -3,9 +3,10 @@ import { getOrRefresh } from "../lib/cache";
 import { sendTelegramMessage } from "../lib/telegramBot";
 import { getDriverStandings } from "../providers/jolpica";
 import { mapDriverStandings } from "../mappers/standings";
-import { getSeasonCalendar } from "../services/calendarService";
+import { getFastDriverStandings } from "../services/liveResultsService";
+import { getMostRecentStartedRace } from "../services/calendarService";
 import { getRaceDetail } from "../services/raceDetailService";
-import type { RaceResultEntry, RaceWeekend } from "../types";
+import type { RaceResultEntry, RaceWeekend, Standing } from "../types";
 
 // Тот же ключ и TTL, что использует GET /api/standings/drivers — если
 // standings уже свежие в кэше (кто-то недавно открыл Standings-страницу),
@@ -32,15 +33,6 @@ async function claimNotification(env: Env, userId: string, key: string): Promise
     .bind(crypto.randomUUID(), userId, key)
     .run();
   return result.meta.changes > 0;
-}
-
-/** Ближайшая к "сейчас" гонка, чья сессия race уже стартовала (т.е. могла завершиться). */
-function findMostRecentStartedRace(races: RaceWeekend[], now: Date): RaceWeekend | null {
-  const started = races.filter((race) => {
-    const raceSession = race.sessions.find((s) => s.type === "race");
-    return raceSession && new Date(raceSession.startUtc) <= now;
-  });
-  return started.length > 0 ? started[started.length - 1] : null;
 }
 
 function isClassified(entry: RaceResultEntry): boolean {
@@ -97,9 +89,19 @@ async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, result
   }
 }
 
-async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): Promise<void> {
+async function resolveChampionshipLeader(env: Env, weekend: RaceWeekend): Promise<Standing | undefined> {
+  const fast = await getFastDriverStandings(env, weekend).catch((err) => {
+    console.error("OpenF1 fast-path standings failed for leader check, falling back to Jolpica:", err);
+    return null;
+  });
+  if (fast) return fast[0];
+
   const { standings } = await getOrRefresh(env, STANDINGS_CACHE_KEY, STANDINGS_TTL_SECONDS, getDriverStandings);
-  const leader = mapDriverStandings(standings)[0];
+  return mapDriverStandings(standings)[0];
+}
+
+async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): Promise<void> {
+  const leader = await resolveChampionshipLeader(env, weekend);
   if (!leader?.driver) return;
 
   const stored = await env.DB.prepare("SELECT value FROM app_state WHERE key = ?")
@@ -151,9 +153,7 @@ async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): P
  * notification_log для идемпотентности.
  */
 export async function runResultNotifications(env: Env): Promise<void> {
-  const now = new Date();
-  const { races } = await getSeasonCalendar(env);
-  const weekend = findMostRecentStartedRace(races, now);
+  const weekend = await getMostRecentStartedRace(env);
   if (!weekend) return;
 
   const detail = await getRaceDetail(env, weekend.id);
