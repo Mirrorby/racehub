@@ -8,13 +8,21 @@ import { Splash } from "./pages/Splash";
 import { Home } from "./pages/Home";
 import { Calendar } from "./pages/Calendar";
 import { RaceDetail } from "./pages/RaceDetail";
-import { Standings } from "./pages/Standings";
 import { More } from "./pages/More";
-import { SelectFavorite } from "./pages/SelectFavorite";
 import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
-import { Onboarding } from "./pages/Onboarding";
 import { BottomNavigation } from "./components/BottomNavigation";
 import { ErrorState } from "./components/ErrorState";
+import { Championship } from "./pages/Championship";
+import { Personalization } from "./pages/Personalization";
+import { TrackStatistics } from "./pages/TrackStatistics";
+import { DriverDetail } from "./pages/DriverDetail";
+import { TeamDetail } from "./pages/TeamDetail";
+import { I18nProvider } from "./i18n/I18nContext";
+import { ThemeProvider } from "./theme/ThemeContext";
+import { useBootstrap } from "./hooks/useBootstrap";
+import { useStandings } from "./hooks/useStandings";
+import { Spinner } from "./components/Spinner";
+import { teamColor } from "./theme/teamColors";
 
 type BootStatus = "loading" | "ready" | "error" | "not_in_telegram";
 
@@ -48,7 +56,6 @@ function describeAuthError(err: unknown): string {
 
 export function App() {
   const [status, setStatus] = useState<BootStatus>("loading");
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [authError, setAuthError] = useState<string>("");
 
   useEffect(() => {
@@ -69,7 +76,6 @@ export function App() {
       try {
         const auth = await authenticateWithTelegram(getRawInitData());
         setSessionToken(auth.sessionToken);
-        setNeedsOnboarding(auth.isNewUser);
         setStatus("ready");
       } catch (err) {
         console.error("Telegram auth failed:", err);
@@ -106,28 +112,38 @@ export function App() {
     );
   }
 
-  if (needsOnboarding) {
-    return (
-      <div className="rh-app-shell">
-        <Onboarding onComplete={() => setNeedsOnboarding(false)} />
-      </div>
-    );
-  }
+  return <ReadyApp />;
+}
 
+function ReadyApp() {
+  const boot = useBootstrap();
+  const constructors = useStandings("constructors");
+  if (boot.isLoading) return <div className="rh-app-shell"><Spinner /></div>;
+  const prefs = boot.data?.profile.preferences;
+  const selectedTeam = constructors.data?.standings.find(s => s.constructor?.id === prefs?.favoriteConstructorId)?.constructor;
   return (
+    <I18nProvider language={prefs?.language ?? "en"}>
+    <ThemeProvider savedAccent={prefs?.favoriteConstructorId ? teamColor(selectedTeam?.id, selectedTeam?.color) : undefined}>
     <div className="rh-app-shell">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/race/:id" element={<RaceDetail />} />
-        <Route path="/standings" element={<Standings />} />
+        <Route path="/race/:id/track" element={<TrackStatistics />} />
+        <Route path="/championship" element={<Championship />} />
+        <Route path="/standings" element={<Navigate to="/championship" replace />} />
+        <Route path="/driver/:id" element={<DriverDetail />} />
+        <Route path="/team/:id" element={<TeamDetail />} />
         <Route path="/more" element={<More />} />
-        <Route path="/drivers" element={<SelectFavorite type="drivers" />} />
-        <Route path="/constructors" element={<SelectFavorite type="constructors" />} />
+        <Route path="/personalization" element={<Personalization />} />
+        <Route path="/drivers" element={<Navigate to="/personalization" replace />} />
+        <Route path="/constructors" element={<Navigate to="/personalization" replace />} />
         <Route path="/more/settings" element={<NotificationSettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <BottomNavigation />
     </div>
+    </ThemeProvider>
+    </I18nProvider>
   );
 }

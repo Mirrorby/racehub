@@ -15,7 +15,7 @@
  */
 
 const BASE_URL = "https://api.jolpi.ca/ergast/f1";
-const USER_AGENT = "RaceHub/0.1 (+https://github.com/Mirrorby/racehub)";
+const USER_AGENT = "PodiumPulse/0.2 (+https://github.com/Mirrorby/racehub)";
 
 const MAX_RETRIES = 3;
 

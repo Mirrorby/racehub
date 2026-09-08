@@ -11,9 +11,11 @@ interface UserRow {
 
 interface PreferencesRow {
   favorite_driver_id: string | null;
+  favorite_driver_2_id: string | null;
   favorite_constructor_id: string | null;
   theme_mode: UserPreferences["themeMode"];
   time_format: UserPreferences["timeFormat"];
+  language: UserPreferences["language"];
 }
 
 interface NotificationSettingsRow {
@@ -84,7 +86,7 @@ export async function findOrCreateUser(
 export async function updateUserPreferences(
   env: Env,
   userId: string,
-  patch: { favoriteDriverId?: string | null; favoriteConstructorId?: string | null },
+  patch: { favoriteDriverId?: string | null; favoriteDriver2Id?: string | null; favoriteConstructorId?: string | null; language?: UserPreferences["language"] },
 ): Promise<UserPreferences> {
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -93,9 +95,17 @@ export async function updateUserPreferences(
     sets.push("favorite_driver_id = ?");
     values.push(patch.favoriteDriverId);
   }
+  if (patch.favoriteDriver2Id !== undefined) {
+    sets.push("favorite_driver_2_id = ?");
+    values.push(patch.favoriteDriver2Id);
+  }
   if (patch.favoriteConstructorId !== undefined) {
     sets.push("favorite_constructor_id = ?");
     values.push(patch.favoriteConstructorId);
+  }
+  if (patch.language !== undefined) {
+    sets.push("language = ?");
+    values.push(patch.language);
   }
 
   if (sets.length > 0) {
@@ -107,16 +117,18 @@ export async function updateUserPreferences(
   }
 
   const row = await env.DB.prepare(
-    "SELECT favorite_driver_id, favorite_constructor_id, theme_mode, time_format FROM user_preferences WHERE user_id = ?",
+    "SELECT favorite_driver_id, favorite_driver_2_id, favorite_constructor_id, theme_mode, time_format, language FROM user_preferences WHERE user_id = ?",
   )
     .bind(userId)
     .first<PreferencesRow>();
 
   return {
     favoriteDriverId: row?.favorite_driver_id ?? null,
+    favoriteDriver2Id: row?.favorite_driver_2_id ?? null,
     favoriteConstructorId: row?.favorite_constructor_id ?? null,
     themeMode: row?.theme_mode ?? "telegram",
     timeFormat: row?.time_format ?? "24h",
+    language: row?.language ?? "en",
   };
 }
 
@@ -199,7 +211,7 @@ export async function getUserProfile(env: Env, userId: string): Promise<UserProf
   if (!userRow) return null;
 
   const prefsRow = await env.DB.prepare(
-    "SELECT favorite_driver_id, favorite_constructor_id, theme_mode, time_format FROM user_preferences WHERE user_id = ?",
+    "SELECT favorite_driver_id, favorite_driver_2_id, favorite_constructor_id, theme_mode, time_format, language FROM user_preferences WHERE user_id = ?",
   )
     .bind(userId)
     .first<PreferencesRow>();
@@ -215,9 +227,11 @@ export async function getUserProfile(env: Env, userId: string): Promise<UserProf
 
   const preferences: UserPreferences = {
     favoriteDriverId: prefsRow?.favorite_driver_id ?? null,
+    favoriteDriver2Id: prefsRow?.favorite_driver_2_id ?? null,
     favoriteConstructorId: prefsRow?.favorite_constructor_id ?? null,
     themeMode: prefsRow?.theme_mode ?? "telegram",
     timeFormat: prefsRow?.time_format ?? "24h",
+    language: prefsRow?.language ?? "en",
   };
 
   const notificationSettings: NotificationSettings = {

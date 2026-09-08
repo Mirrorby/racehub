@@ -20,9 +20,13 @@ export function mapDriverStandings(raw: RawDriverStanding[]): Standing[] {
       driver: {
         id: entry.Driver.driverId,
         code: entry.Driver.code ?? entry.Driver.driverId.slice(0, 3).toUpperCase(),
+        number: entry.Driver.permanentNumber ? Number(entry.Driver.permanentNumber) : null,
         fullName: `${entry.Driver.givenName} ${entry.Driver.familyName}`,
+        constructorId: constructor?.constructorId ?? "",
+        constructorName: constructor?.name ?? "",
+        teamColor: constructorColor(constructor?.constructorId ?? ""),
       },
-      constructor: constructor ? { id: constructor.constructorId, name: constructor.name } : undefined,
+      constructor: constructor ? { id: constructor.constructorId, name: constructor.name, color: constructorColor(constructor.constructorId), nationality: constructor.nationality } : undefined,
     };
   });
 }
@@ -37,7 +41,7 @@ export function mapConstructorStandings(raw: RawConstructorStanding[]): Standing
       wins: Number(entry.wins),
       gapToLeader: points === leaderPoints ? 0 : leaderPoints - points,
       movement: "unknown",
-      constructor: { id: entry.Constructor.constructorId, name: entry.Constructor.name },
+      constructor: { id: entry.Constructor.constructorId, name: entry.Constructor.name, color: constructorColor(entry.Constructor.constructorId), nationality: entry.Constructor.nationality },
     };
   });
 }

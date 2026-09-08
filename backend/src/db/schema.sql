@@ -22,9 +22,11 @@ CREATE INDEX IF NOT EXISTS idx_users_telegram_user_id ON users (telegram_user_id
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
   favorite_driver_id TEXT,
+  favorite_driver_2_id TEXT,
   favorite_constructor_id TEXT,
   theme_mode TEXT NOT NULL DEFAULT 'telegram',  -- telegram | light | dark
   time_format TEXT NOT NULL DEFAULT '24h',      -- 24h | 12h
+  language TEXT NOT NULL DEFAULT 'en',           -- en | ru
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 

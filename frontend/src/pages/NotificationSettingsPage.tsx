@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AppHeader } from "../components/AppHeader";
-import { Skeleton } from "../components/Skeleton";
+import { Spinner } from "../components/Spinner";
 import { ErrorState } from "../components/ErrorState";
 import { useBootstrap } from "../hooks/useBootstrap";
 import { useUpdateNotificationSettings } from "../hooks/useUpdateNotificationSettings";
@@ -62,22 +61,9 @@ export function NotificationSettingsPage() {
   }
 
   return (
-    <>
-      <AppHeader
-        title="Notifications"
-        action={
-          <button onClick={() => navigate("/more")} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>
-            ‹ Back
-          </button>
-        }
-      />
-      <div className="rh-content">
+      <div className="rh-content"><div className="pp-wordmark">Podium Pulse</div><h1 className="pp-page-title">Notifications</h1>
         {isLoading && !draft && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Skeleton height={44} />
-            <Skeleton height={44} />
-            <Skeleton height={44} />
-          </div>
+          <Spinner />
         )}
 
         {isError && <ErrorState onRetry={() => refetch()} />}
@@ -169,6 +155,5 @@ export function NotificationSettingsPage() {
           </>
         )}
       </div>
-    </>
   );
 }
