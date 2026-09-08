@@ -1,221 +1,94 @@
-# Race Hub — неофициальный гоночный companion (Telegram Mini App)
+# Podium Pulse — Этапы 1+2, единый пакет
 
-Рабочее название `Race Hub` — временное, перед публичным релизом заменить на
-собственный бренд без использования F1 / Formula 1 (см. ТЗ, раздел 69).
+Это объединённый результат обоих этапов (реальные ассеты сезона 2026 +
+подключение их в код редизайна). Накладывается поверх вашей локальной
+копии `Podium_Pulse_redesign_ready`, которая ещё не запушена в GitHub.
 
-Реализовано:
+## Как применить
 
-**Этап 1 («Foundation»)**
-- [x] Repository / структура монорепозитория
-- [x] Frontend: React + TypeScript + Vite + React Router + TanStack Query
-- [x] Backend: Cloudflare Worker (TypeScript) + REST API skeleton
-- [x] Telegram Mini App bootstrap (WebApp.ready, theme, initData)
-- [x] Telegram auth: серверная валидация initData (HMAC-SHA256)
-- [x] DB: схема Cloudflare D1 (users / user_preferences / notification_settings / notification_log)
+1. Скопируйте содержимое этого архива поверх `Podium_Pulse_redesign_ready`,
+   подтверждая перезапись файлов с совпадающими путями.
+2. **Удалите вручную** 5 файлов мёртвого кода (zip не умеет представлять
+   удаления, а они нигде не импортировались, поэтому просто лишний вес):
+   - `frontend/src/pages/Onboarding.tsx`
+   - `frontend/src/pages/SelectFavorite.tsx`
+   - `frontend/src/components/FavoriteButton.tsx`
+   - `frontend/src/components/Skeleton.tsx`
+   - `frontend/src/components/AppHeader.tsx`
+3. Проверьте компиляцию перед пушем в GitHub:
+   ```
+   cd frontend && npm install && npm run build
+   cd ../backend && npm install && npx tsc --noEmit
+   ```
+4. Запушите итог в `github.com/Mirrorby/racehub` (в отдельную ветку —
+   вы говорили, что деплоить сразу не планируете).
 
-**Этап 2 («Data layer»)**
-- [x] `backend/src/providers/jolpica.ts` — клиент Jolpica F1 API (retry/backoff, свой User-Agent)
-- [x] `backend/src/lib/cache.ts` — TTL-кэш поверх D1 (`api_cache`) со stale-if-error фоллбэком
-- [x] Нормализация `RaceWeekend`/`Session`/`Standing` — `backend/src/mappers/`
-- [x] `GET /api/calendar`, `GET /api/standings/:type`, реальный `nextRace` в `/api/bootstrap`
-- [x] Реальные данные в `Home`, `Calendar`, `Standings` на фронте вместо моков
+## Обязательный порядок при деплое (напоминание из аудита)
 
-Дальше по ТЗ — Этап 3 (избранные пилот/команда как отдельные экраны выбора,
-уведомления, race detail `/race/:id`).
-
----
-
-## Структура
-
+Перед деплоем нового backend **сначала** прогоните на remote D1:
 ```
-race-hub/
-├── frontend/         # Telegram Mini App (Cloudflare Pages)
-│   └── src/
-│       ├── telegram/ # обёртка над Telegram WebApp SDK + bootstrap flow
-│       ├── api/       # http-клиент, TanStack Query client
-│       ├── components/# переиспользуемые UI-компоненты
-│       ├── pages/      # Home / Calendar / Standings / More / Onboarding / Splash
-│       └── styles/     # CSS-переменные темы (telegram/light/dark)
-│
-└── backend/          # Cloudflare Worker (REST API + Telegram webhook + cron)
-    └── src/
-        ├── routes/     # auth, bootstrap, calendar, standings
-        ├── providers/  # Jolpica F1 API client
-        ├── mappers/    # raw Jolpica JSON -> нормализованные типы
-        ├── services/   # calendarService (shared между /api/calendar и bootstrap)
-        ├── lib/        # telegram initData validation, cache, http helpers
-        └── db/          # schema.sql (D1 migrations)
+wrangler d1 execute race_hub_db --remote --file=./backend/src/db/migrations/0002_podium_pulse_preferences.sql
 ```
+Иначе первый же запрос к preferences упадёт (`no such column`). Это не
+входит в этот пакет — миграция уже была в предыдущем аудите редизайна,
+файл `0002_podium_pulse_preferences.sql` у вас уже есть в
+`Podium_Pulse_redesign_ready/backend/src/db/migrations/`.
 
-## Frontend — запуск локально
+## Что внутри
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### Backend (3 файла)
+- `types.ts`, `mappers/raceWeekend.ts` — добавлено поле `circuitId`
+  (реальный баг: трасса никогда не резолвилась в файл, см. ниже)
+- `mappers/teamColors.ts` — цвета команд сезона 2026
 
-Для локальной разработки Mini App внутри Telegram нужен HTTPS-туннель
-(например, `cloudflared tunnel` или `ngrok`) и `Bot > Menu Button / Web App URL`,
-указывающий на этот туннель.
+### Frontend — новое
+- `components/TrackOutline.tsx` — inline-SVG трассы с анимацией импульса
+- `public/assets/{teams,cars,drivers,numbers}/*.webp` — 11 команд, 11 машин,
+  22 пилота, 22 номера (сезон 2026, реальные)
+- `public/assets/tracks/*.svg` — 25 контуров трасс (CC BY 4.0, атрибуция
+  добавлена в More.tsx)
 
-Деплой на Cloudflare Pages:
+### Frontend — изменено
+- `assets.ts` — логотипы теперь `.webp`, добавлен `assetFor.number()`
+- `theme/teamColors.ts`, `types/domain.ts`
+- `theme/ThemeContext.tsx` — динамические surface-glass/border/nav-bg
+- `i18n/I18nContext.tsx` — закрыты хардкод-строки, атрибуция трасс
+- `styles/global.css` — анимация импульса, вёрстка под новые ассеты
+- `pages/{Home,Calendar,RaceDetail,TrackStatistics,DriverDetail,TeamDetail,Personalization,More}.tsx`
+- `components/EntityCards.tsx`
 
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name=race-hub
-```
+## Главные технические решения (коротко)
 
-## Backend — запуск локально
+1. **Реальный баг найден и исправлен**: `assetFor.track(w.id)` всегда
+   резолвился в `<season>-<round>.svg` — backend не отдавал `circuitId`.
+   Трасса молча падала на плейсхолдер с первого дня редизайна, до этого
+   пакета — никогда не работала бы, даже если бы вы сами добавили SVG.
+2. **Логотипы команд обрезаны от спонсорских lockup'ов** (Mercedes, Aston
+   Martin, Audi) и трейдмарк-риска (Revolut/Aramco/AMG — сторонние бренды
+   вне вашего диклеймера). Williams пересобран — было лого на сплошном
+   белом фоне без прозрачности.
+3. **Цвета команд сэмплированы с фото болидов**, не с логотипов —
+   большинство логотипов монохромные, дали бы неверный результат при
+   автоматическом извлечении.
+4. **Анимация трассы технически проверена**, не только написана: сделал
+   статический рендер механики (pathLength-нормализация +
+   stroke-dashoffset), визуально подтвердил, что импульс идёт по контуру
+   и форма трассы (Монца/Монако) узнаваема.
+5. `tsc -b --noEmit` + `vite build` (frontend) и `tsc --noEmit` (backend) —
+   всё чисто на момент сборки этого пакета.
 
-```bash
-cd backend
-npm install
-npx wrangler d1 create race_hub_db          # один раз, затем вписать id в wrangler.toml
-npx wrangler d1 execute race_hub_db --local --file=./src/db/schema.sql
-npx wrangler dev
-```
+## Что нужно проверить вам после деплоя (не смог сам — нет доступа к
+живому приложению из песочницы)
 
-Перед деплоем задать секреты:
+| # | Что | Где |
+|---|---|---|
+| 1 | Направление импульса на каждой из 25 трасс (сейчас везде default, не reverse) | `REVERSE_DIRECTION` в `TrackOutline.tsx` |
+| 2 | Визуальный баланс графики номера пилота на карточках | `pp-driver-card__number-graphic`, `pp-choice__number-graphic` в `global.css` |
+| 3 | circuitId для `madring` (Мадрид) — не подтверждён живым запросом | `docs/CIRCUIT_MAPPING.md` в этом пакете |
+| 4 | Актуальность Бахрейна/Джидды в календаре 2026 | там же |
 
-```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-```
+## Не входит в этот пакет (следующий этап — backend)
 
-Деплой:
-
-```bash
-npx wrangler deploy
-npx wrangler d1 execute race_hub_db --remote --file=./src/db/schema.sql
-```
-
-## CI/CD (backend + frontend)
-
-Оба воркера деплоятся отдельными workflow-файлами, каждый триггерится
-только на изменения в своей папке:
-
-- `.github/workflows/deploy-backend.yml` → Cloudflare Worker (API).
-- `.github/workflows/deploy-frontend.yml` → Cloudflare Worker со статикой
-  (`[assets]` в `frontend/wrangler.toml`, SPA fallback на `index.html`).
-
-Оба используют `cloudflare/wrangler-action@v4` с `workingDirectory` на
-соответствующую папку — важно для монорепо, без этого action путает
-лок-файлы/пакетный менеджер фронта и бэкенда. Секрет `TELEGRAM_BOT_TOKEN`
-в CI не участвует, задаётся один раз через `wrangler secret put` (или в
-Cloudflare Dashboard → Worker → Settings → Variables) и переживает деплои.
-
-Нужные секреты репозитория (Settings → Secrets and variables → Actions → **Secrets**):
-
-| Секрет | Назначение |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | токен с правами `Workers Scripts:Edit` |
-| `CLOUDFLARE_ACCOUNT_ID` | id аккаунта Cloudflare |
-
-И одна repository **variable** (та же вкладка, таб **Variables**, не Secrets —
-значение не секретное, просто чтобы не хардкодить в workflow):
-
-| Variable | Значение |
-|---|---|
-| `VITE_API_BASE_URL` | `https://race-hub-backend.<твой-сабдомен>.workers.dev/api` |
-
-Frontend инлайнит `VITE_API_BASE_URL` в бандл на этапе `vite build` — если
-поменяется адрес backend-воркера, обновить эту variable и запушить что-то
-в `frontend/**` (или запустить workflow вручную через workflow_dispatch).
-
-## Переменные окружения backend
-
-| Переменная | Назначение |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | секрет, используется для проверки подписи `initData` и для Bot API |
-| `ENVIRONMENT` | `development` / `production` — влияет на строгость проверки `auth_date` |
-
-## Data layer (Этап 2) — что важно знать
-
-- Источник данных — [Jolpica F1 API](https://github.com/jolpica/jolpica-f1) (открытая замена Ergast). Rate limit апстрима: 4 req/sec burst, 500/hour — см. `backend/src/providers/jolpica.ts`.
-- Кэш — таблица `api_cache` в D1, TTL 6ч для календаря / 15м для standings. Если апстрим недоступен, а кэш протух — отдаём протухшие данные, а не ошибку (stale-if-error).
-- Country flags и цвета команд Ergast не отдаёт — они захардкожены в `backend/src/mappers/countryCode.ts` и `teamColors.ts`; при появлении новой страны/команды в календаре просто дополнить таблицу.
-- Известное упрощение: `Standing.movement` (изменение позиции к прошлому этапу) всегда `"unknown"` — Ergast не отдаёт это напрямую, потребует отдельного запроса standings "на -1 раунд" (см. TODO в `mappers/standings.ts`).
-
-## Быстрые результаты и standings (OpenF1) — почему и как
-
-Jolpica **сознательно** обновляет результаты батчем, по своим словам —
-примерно раз в неделю, в понедельник после гонки
-(https://github.com/jolpica/jolpica-f1/discussions/95). Через несколько
-часов после гонки, а тем более на следующий день, это неприемлемо для
-mini-app, которым пользуются сразу после финиша.
-
-Поэтому для **результатов гонки** и **standings** (личный зачёт и кубок
-конструкторов) добавлен fast-path через [OpenF1](https://openf1.org) —
-бесплатный API без ключей, публикует официальные результаты в течение
-нескольких минут после гонки. Jolpica остаётся источником для календаря,
-сезонной структуры и **квалификации** (у OpenF1 нет готового Q1/Q2/Q3
-разбиения, как у Ergast — собирать его из сырых `laps` не входило в
-рамки этой правки).
-
-Как это работает (`backend/src/services/liveResultsService.ts`):
-
-1. По известному из Jolpica-календаря времени старта сессии находим
-   соответствующий `session_key` в OpenF1 (`providers/openf1.ts`,
-   сопоставление по ближайшему `date_start`, допуск ±12ч).
-2. Тянем `session_result` / `championship_drivers` / `championship_teams`.
-3. **Сведение идентификаторов**: OpenF1 использует `driver_number`, а не
-   `driverId` Ergast/Jolpica — сопоставляем через 3-буквенный код пилота
-   (`name_acronym` в OpenF1 == `code` в Ergast), он общий для обеих систем
-   и присваивается FIA один раз на карьеру. Индекс код→driverId строится
-   из уже закэшированных Jolpica-standings (`standings:drivers`/
-   `standings:constructors` — тот же кэш, что использует обычный
-   `/api/standings`, лишнего похода в Jolpica ради этого нет).
-4. Если сведение по коду не удалось (совсем новый пилот, ещё не попавший
-   в закэшированные standings) — строка не отбрасывается, driverId
-   фабрикуется как `openf1-<номер>` с реальным именем из OpenF1.
-5. **Graceful fallback**: если OpenF1 ещё не знает о сессии, вернул
-   пустой ответ или сам запрос упал — везде (`raceDetailService`,
-   `routes/standings.ts`, проверка смены лидера в
-   `notifications/resultNotifications.ts`) код тихо откатывается на
-   прежний путь через Jolpica. Пользователь никогда не увидит ошибку
-   из-за недоступности OpenF1 — в худшем случае вернётся прежняя
-   скорость обновления.
-6. TTL кэша fast-path — 2 минуты (`FAST_PATH_TTL_SECONDS`); сопоставление
-   season/round → `session_key` кэшируется на 6ч, но **только при удачном
-   поиске** — если сессия ещё не нашлась, следующий запрос попробует
-   заново, а не будет ждать 6 часов впустую.
-
-## Что дальше (Этап 3, по ТЗ)
-
-- [x] Экраны выбора избранного пилота/команды (`/drivers`, `/constructors`) + `PUT /api/preferences`
-- [x] Настройки уведомлений (`/more/settings`) + `PUT /api/notifications/settings`
-- [x] Cron-напоминания перед сессиями (race/qualifying/sprint/practice) через `scheduled` handler
-- [x] Экран деталей гонки (`/race/:id`) — расписание + результаты квалы/гонки, когда доступны
-
-Этап 3 закрыт. Дальше по ТЗ — result-based уведомления (см. ниже) и то, что решим следующим.
-
-## Уведомления — что важно знать
-
-- Cron (`[triggers] crons` в `backend/wrangler.toml`) тикает раз в 5 минут и смотрит только на ближайший незавершённый уик-энд — этого достаточно, т.к. до следующей гонки в любом случае дальше, чем максимальный `minutesBefore` (24ч).
-- Идемпотентность — таблица `notification_log` с `UNIQUE(user_id, notification_key)`; повторный тик cron на ту же сессию не даст дубликат, даже если несколько инвокаций пересеклись.
-- Маппинг типов сессий на 4 категории настроек: `fp1/fp2/fp3` → Practice, `sprint_quali` → Qualifying (это квалификационная сессия по формату), `sprint`/`qualifying`/`race` — сами по себе.
-- Отправка — напрямую через Telegram Bot API (`backend/src/lib/telegramBot.ts`), без сторонних SDK.
-
-### Result-based уведомления
-
-Реализованы в `notifications/resultNotifications.ts`, тикают тем же cron (раз в 5 минут):
-
-- **Results** (`resultsEnabled`) — подиум, как только Jolpica опубликует официальные результаты гонки.
-- **Favourite driver's result** (`favoriteDriverResultEnabled`) — позиция/очки любимого пилота либо причина схода.
-- **Championship lead changes** (`championshipChangeEnabled`) — сравнение текущего лидера личного зачёта с сохранённым в новой таблице `app_state` (`championship_leader_driver_id`); шлём только при реальной смене, не на каждый тик.
-
-**⚠️ Нужна миграция схемы** (добавилась таблица `app_state`) — прогнать
-`npm run db:migrate:remote` в `backend/` один раз перед деплоем (или
-через `wrangler d1 execute` вручную, если предпочитаешь дашборд).
-
-**Известный нюанс при первом включении**: если на момент первого деплоя
-этой фичи последняя гонка сезона уже завершилась и её результаты давно
-опубликованы, при первом тике cron все, у кого включён `resultsEnabled`,
-получат уведомление об этой гонке (даже если она была неделю назад) — это
-разовая ситуация, дальше `notification_log` не даст повторов. Если это
-нежелательно — можно перед первым деплоем временно выключить
-`resultsEnabled` у всех через прямой SQL, либо просто принять разовое
-уведомление.
-
-Дисклеймер о неофициальном статусе продукта — обязателен на экране About и в
-футере Home (ТЗ, раздел 70) — заглушка уже добавлена в `pages/More`.
+Practice/Sprint результаты сессий и данные для Track Statistics/Career —
+отдельная работа с backend-мапперами и, для части полей, курируемым
+датасетом. Готовы перейти к этому дальше.

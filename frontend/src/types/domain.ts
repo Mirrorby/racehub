@@ -45,6 +45,7 @@ export interface RaceWeekend {
   countryCode: string;
   city: string;
   circuit: string;
+  circuitId: string;
   sessions: Session[];
   status: RaceWeekendStatus;
 }
@@ -55,8 +56,8 @@ export interface Standing {
   wins: number;
   gapToLeader: number | null;
   movement: "up" | "down" | "same" | "unknown";
-  driver?: Pick<Driver, "id" | "fullName" | "code">;
-  constructor?: Pick<Constructor, "id" | "name">;
+  driver?: Pick<Driver, "id" | "fullName" | "code"> & Partial<Pick<Driver, "number" | "constructorId" | "constructorName" | "teamColor">>;
+  constructor?: Pick<Constructor, "id" | "name"> & Partial<Pick<Constructor, "color" | "nationality">>;
 }
 
 export interface RaceResultEntry {
@@ -90,9 +91,11 @@ export type TimeFormat = "24h" | "12h";
 
 export interface UserPreferences {
   favoriteDriverId: string | null;
+  favoriteDriver2Id: string | null;
   favoriteConstructorId: string | null;
   themeMode: ThemeMode;
   timeFormat: TimeFormat;
+  language: "en" | "ru";
 }
 
 export interface NotificationSettings {

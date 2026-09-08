@@ -92,6 +92,7 @@ export function mapRaceWeekend(raw: RawRace, now: Date = new Date()): RaceWeeken
     countryCode: countryNameToIsoCode(raw.Circuit.Location.country),
     city: raw.Circuit.Location.locality,
     circuit: raw.Circuit.circuitName,
+    circuitId: raw.Circuit.circuitId,
     sessions,
     status: weekendStatus(sessions),
   };
