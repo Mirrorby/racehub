@@ -3,7 +3,7 @@ import { getOrRefresh } from "../lib/cache";
 import { getQualifyingResults, getRaceResults, getSprintResults } from "../providers/jolpica";
 import { mapQualifyingResults, mapRaceResults, mapSprintResults } from "../mappers/raceResults";
 import { getFastRaceResults } from "./liveResultsService";
-import { getPracticeResults } from "./practiceResultsService";
+import { getPracticeResults, getSprintQualifyingResults } from "./practiceResultsService";
 import { getSeasonCalendar } from "./calendarService";
 import type { PracticeResultEntry, RaceDetailResponse, RaceResultEntry, RaceWeekend, SessionType } from "../types";
 
@@ -77,8 +77,9 @@ export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailRes
   const qualifyingSession = weekend.sessions.find((s) => s.type === "qualifying");
   const raceSession = weekend.sessions.find((s) => s.type === "race");
   const sprintSession = weekend.sessions.find((s) => s.type === "sprint");
+  const sprintQualiSession = weekend.sessions.find((s) => s.type === "sprint_quali");
 
-  const [qualifyingResults, raceResults, sprintResults, practiceResults] = await Promise.all([
+  const [qualifyingResults, raceResults, sprintResults, practiceResults, sprintQualifyingResults] = await Promise.all([
     qualifyingSession && qualifyingSession.status !== "upcoming"
       ? getOrRefresh(env, `qualifying:${id}`, RESULTS_TTL_SECONDS, () => getQualifyingResults(weekend.round)).then(
           mapQualifyingResults,
@@ -87,6 +88,12 @@ export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailRes
     raceSession && raceSession.status !== "upcoming" ? resolveRaceResults(env, weekend) : Promise.resolve(null),
     sprintSession && sprintSession.status !== "upcoming" ? resolveSprintResults(env, weekend) : Promise.resolve(null),
     resolvePracticeResults(env, weekend),
+    sprintQualiSession && sprintQualiSession.status !== "upcoming"
+      ? getSprintQualifyingResults(env, weekend).catch((err) => {
+          console.error(`OpenF1 sprint qualifying results failed for ${weekend.id}:`, err);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
 
   // Апстрим публикует официальные результаты не мгновенно после финиша —
@@ -98,5 +105,6 @@ export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailRes
     raceResults: raceResults && raceResults.length > 0 ? raceResults : null,
     sprintResults: sprintResults && sprintResults.length > 0 ? sprintResults : null,
     practiceResults,
+    sprintQualifyingResults,
   };
 }

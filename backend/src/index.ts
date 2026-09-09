@@ -7,6 +7,7 @@ import { handleRaceDetail } from "./routes/race";
 import { handleStandings } from "./routes/standings";
 import { handleUpdatePreferences } from "./routes/preferences";
 import { handleUpdateNotificationSettings } from "./routes/notifications";
+import { handleDriverCareer, handleConstructorCareer, handleTrackHistory } from "./routes/career";
 import { runSessionReminders } from "./notifications/sessionReminders";
 import { runResultNotifications } from "./notifications/resultNotifications";
 import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
@@ -31,6 +32,14 @@ router.get("/api/standings/:type", (request, env: Env) => handleStandings(reques
 router.put("/api/preferences", (request, env: Env) => handleUpdatePreferences(request, env));
 
 router.put("/api/notifications/settings", (request, env: Env) => handleUpdateNotificationSettings(request, env));
+
+router.get("/api/drivers/:id/career", (request, env: Env) => handleDriverCareer(request, env, request.params.id));
+
+router.get("/api/constructors/:id/career", (request, env: Env) =>
+  handleConstructorCareer(request, env, request.params.id),
+);
+
+router.get("/api/circuits/:id/history", (request, env: Env) => handleTrackHistory(request, env, request.params.id));
 
 router.all("*", () => errorResponse("Not found", 404));
 

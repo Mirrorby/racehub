@@ -163,4 +163,41 @@ export interface RaceDetailResponse {
   // null, чтобы фронт мог отличить "сессии нет в расписании" от "результаты
   // сессии ещё не появились".
   practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
+  sprintQualifyingResults: PracticeResultEntry[] | null;
+}
+
+export interface DriverCareerStats {
+  wins: number;
+  podiums: number;
+  poles: number;
+  points: number;
+  championships: number;
+  firstSeason: number | null;
+  lastSeason: number | null;
+  dateOfBirth: string | null;
+  nationality: string;
+}
+
+export interface ConstructorCareerStats {
+  wins: number;
+  podiums: number;
+  points: number;
+  championships: number;
+  firstSeason: number | null;
+  lastSeason: number | null;
+}
+
+export interface TrackHistory {
+  firstSeason: number | null;
+  lastSeason: number | null;
+  totalRaces: number;
+  // Оба поля намеренно могут быть null даже когда totalRaces > 0 — для
+  // трасс с длинной историей (70+ гонок) агрегация "самый успешный
+  // пилот/команда" не считается, чтобы не упереться в лимиты пагинации
+  // Jolpica (см. getCircuitAllResultsIfFits). winsStatsAvailable=false
+  // отличает "не считали" от "посчитали и там пусто".
+  winsStatsAvailable: boolean;
+  mostWinsDriver: { name: string; wins: number } | null;
+  mostWinsConstructor: { name: string; wins: number } | null;
+  lapRecord: { time: string; driver: string; constructor: string; season: number } | null;
 }

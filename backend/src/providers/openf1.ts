@@ -48,15 +48,29 @@ export interface RawOpenF1SessionResult {
   dnf: boolean;
   dns: boolean;
   dsq: boolean;
-  // Лучший круг (практики/квалификация) или суммарное время (гонка), в
-  // секундах. В обычной квалификации Ergast/OpenF1 иногда отдаёт массив
-  // [Q1,Q2,Q3] вместо одного числа — поэтому этот провайдер сознательно НЕ
-  // используется для сессий типа "Qualifying"/"Sprint Qualifying" (там и
-  // так есть надёжный Q1/Q2/Q3 из Jolpica, либо результат пока не сведён,
-  // см. TODO в raceDetailService.ts). Для практик OpenF1 всегда отдаёт
-  // здесь одно число.
-  duration: number | null;
-  gap_to_leader: number | null;
+  // Лучший круг (практики) или суммарное время (гонка) — обычно одно
+  // число. Но для сессий типа "квалификация" (Qualifying/Sprint
+  // Qualifying) OpenF1 отдаёт МАССИВ [Q1,Q2,Q3]/[SQ1,SQ2,SQ3] — это
+  // подтверждено вживую тестовой фикстурой реального Rust-клиента openf1
+  // (docs.rs/crate/openf1), а не догадкой. См. unwrapFlexibleNumber ниже.
+  duration: number | number[] | null;
+  gap_to_leader: number | number[] | null;
+}
+
+/**
+ * Схлопывает "гибкое" поле OpenF1 (число | массив по стадиям квалы | null)
+ * в единственное число — берём последний элемент массива, т.е. время/гэп
+ * той стадии, до которой пилот реально доехал (Q1-вылетевший -> его Q1,
+ * добравшийся до Q3 -> его Q3). Та же логика, что в проверенном openf1
+ * Rust-крейте (serde_helpers::optional_f64_flexible).
+ */
+export function unwrapFlexibleNumber(value: number | number[] | null): number | null {
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    const last = value.length > 0 ? value[value.length - 1] : null;
+    return last ?? null;
+  }
+  return value;
 }
 
 export interface RawOpenF1StartingGridEntry {

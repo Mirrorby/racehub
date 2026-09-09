@@ -5,19 +5,20 @@ import { findSessionCached, buildDriverCodeIndex, buildConstructorNameIndex, nor
 import type { PracticeResultEntry, RaceWeekend } from "../types";
 
 /**
- * Результаты практик (FP1/FP2/FP3) — доступны ТОЛЬКО через OpenF1. Jolpica
- * принципиально не отдаёт эти данные (подтверждено мейнтейнерами,
- * jolpica-f1/discussions/128) и не планирует добавлять их в существующие
- * /ergast эндпоинты. Это единственный источник, поэтому в отличие от
- * getFastRaceResults здесь нет отката на Jolpica — если OpenF1 недоступен
- * или сессию ещё не нашёл, результата просто нет (null), а не "медленный,
- * но верный" альтернативный путь.
+ * Результаты сессий без очков/статуса финиша — практики (FP1/FP2/FP3) и
+ * спринт-квалификация. Всё это доступно ТОЛЬКО через OpenF1: Jolpica
+ * принципиально не отдаёт практики (подтверждено мейнтейнерами,
+ * jolpica-f1/discussions/128) и не имеет отдельного эндпоинта под
+ * Sprint Qualifying. Обычную квалификацию (Q1/Q2/Q3) сюда сознательно НЕ
+ * включаем — для неё есть надёжный Jolpica-эндпоинт с уже готовыми
+ * Q1/Q2/Q3 по стадиям (mapQualifyingResults), здесь дублировать незачем.
+ *
+ * В отличие от getFastRaceResults, здесь нет отката на Jolpica — если
+ * OpenF1 недоступен или сессию ещё не нашёл, результата просто нет (null).
  */
-const PRACTICE_TTL_SECONDS = 5 * 60;
+const TIMING_TTL_SECONDS = 5 * 60;
 
 // В секундах, с плавающей точкой (напр. 81.045) -> "1:21.045".
-// duration/gap_to_leader у OpenF1 меньше часа всегда (лучший круг практики
-// физически не может быть настолько долгим), поэтому часы не считаем.
 function formatLapTime(seconds: number): string {
   const whole = Math.floor(seconds);
   const minutes = Math.floor(whole / 60);
@@ -47,15 +48,16 @@ function positionText(row: openf1.RawOpenF1SessionResult): string {
 
 const UNRANKED_SORT_POSITION = 9999;
 
-export async function getPracticeResults(
+async function getTimingSessionResults(
   env: Env,
   weekend: RaceWeekend,
-  sessionType: "fp1" | "fp2" | "fp3",
+  sessionType: "fp1" | "fp2" | "fp3" | "sprint_quali",
+  cacheKeyPart: string,
 ): Promise<PracticeResultEntry[] | null> {
   const session = await findSessionCached(env, weekend, sessionType);
   if (!session) return null;
 
-  return getOrRefresh(env, `openf1:practice:${weekend.id}:${sessionType}`, PRACTICE_TTL_SECONDS, async () => {
+  return getOrRefresh(env, `openf1:${cacheKeyPart}:${weekend.id}`, TIMING_TTL_SECONDS, async () => {
     const [results, drivers] = await Promise.all([
       openf1.getSessionResult(session.session_key),
       openf1.getSessionDrivers(session.session_key),
@@ -84,13 +86,16 @@ export async function getPracticeResults(
           name: driverMeta.team_name,
         };
 
+        const duration = openf1.unwrapFlexibleNumber(row.duration);
+        const gap = openf1.unwrapFlexibleNumber(row.gap_to_leader);
+
         return {
           position: row.position ?? UNRANKED_SORT_POSITION,
           positionText: positionText(row),
           driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName },
           constructor,
-          bestLapTime: row.duration != null ? formatLapTime(row.duration) : null,
-          gapToLeader: row.gap_to_leader != null ? formatGap(row.gap_to_leader) : null,
+          bestLapTime: duration != null ? formatLapTime(duration) : null,
+          gapToLeader: gap != null ? formatGap(gap) : null,
           laps: row.number_of_laps ?? 0,
         };
       })
@@ -98,4 +103,16 @@ export async function getPracticeResults(
 
     return entries.length > 0 ? entries : null;
   });
+}
+
+export async function getPracticeResults(
+  env: Env,
+  weekend: RaceWeekend,
+  sessionType: "fp1" | "fp2" | "fp3",
+): Promise<PracticeResultEntry[] | null> {
+  return getTimingSessionResults(env, weekend, sessionType, `practice:${sessionType}`);
+}
+
+export async function getSprintQualifyingResults(env: Env, weekend: RaceWeekend): Promise<PracticeResultEntry[] | null> {
+  return getTimingSessionResults(env, weekend, "sprint_quali", "sprint-quali");
 }

@@ -96,6 +96,38 @@ export interface RaceDetailResponse {
   qualifyingResults: QualifyingResultEntry[] | null;
   sprintResults: RaceResultEntry[] | null;
   practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
+  sprintQualifyingResults: PracticeResultEntry[] | null;
+}
+
+export interface DriverCareerStats {
+  wins: number;
+  podiums: number;
+  poles: number;
+  points: number;
+  championships: number;
+  firstSeason: number | null;
+  lastSeason: number | null;
+  dateOfBirth: string | null;
+  nationality: string;
+}
+
+export interface ConstructorCareerStats {
+  wins: number;
+  podiums: number;
+  points: number;
+  championships: number;
+  firstSeason: number | null;
+  lastSeason: number | null;
+}
+
+export interface TrackHistory {
+  firstSeason: number | null;
+  lastSeason: number | null;
+  totalRaces: number;
+  winsStatsAvailable: boolean;
+  mostWinsDriver: { name: string; wins: number } | null;
+  mostWinsConstructor: { name: string; wins: number } | null;
+  lapRecord: { time: string; driver: string; constructor: string; season: number } | null;
 }
 
 export type ThemeMode = "telegram" | "light" | "dark";
