@@ -41,13 +41,22 @@ export interface RawOpenF1Driver {
 }
 
 export interface RawOpenF1SessionResult {
-  position: number;
+  position: number | null; // null у DSQ/DNS — сессия не насчитала позицию
   driver_number: number;
-  number_of_laps: number;
+  number_of_laps: number | null;
   points: number;
   dnf: boolean;
   dns: boolean;
   dsq: boolean;
+  // Лучший круг (практики/квалификация) или суммарное время (гонка), в
+  // секундах. В обычной квалификации Ergast/OpenF1 иногда отдаёт массив
+  // [Q1,Q2,Q3] вместо одного числа — поэтому этот провайдер сознательно НЕ
+  // используется для сессий типа "Qualifying"/"Sprint Qualifying" (там и
+  // так есть надёжный Q1/Q2/Q3 из Jolpica, либо результат пока не сведён,
+  // см. TODO в raceDetailService.ts). Для практик OpenF1 всегда отдаёт
+  // здесь одно число.
+  duration: number | null;
+  gap_to_leader: number | null;
 }
 
 export interface RawOpenF1StartingGridEntry {
@@ -77,7 +86,7 @@ const SESSION_MATCH_TOLERANCE_MS = 12 * 60 * 60 * 1000;
  */
 export async function findSession(
   year: number,
-  sessionName: "Race" | "Qualifying",
+  sessionName: "Race" | "Qualifying" | "Sprint" | "Sprint Qualifying" | "Practice 1" | "Practice 2" | "Practice 3",
   targetIso: string,
 ): Promise<RawOpenF1Session | null> {
   let sessions: RawOpenF1Session[];

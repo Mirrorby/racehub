@@ -72,7 +72,6 @@ export interface RawSessionTime {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM:SSZ
 }
-
 export interface RawRace {
   season: string;
   round: string;
@@ -204,4 +203,21 @@ export async function getRaceResults(round: number): Promise<RawResult[]> {
 export async function getQualifyingResults(round: number): Promise<RawQualifyingResult[]> {
   const data = await fetchJson<MRDataEnvelope<QualifyingPayload>>(`/current/${round}/qualifying.json`);
   return data.MRData.RaceTable.Races[0]?.QualifyingResults ?? [];
+}
+
+// Sprint-гонка имеет ту же форму результата, что и обычная гонка (позиция,
+// сетка, круги, статус, очки) — Ergast/Jolpica используют идентичную схему
+// RawResult под именем SprintResults. Спринт-квалификацию (SQ1/SQ2/SQ3)
+// Jolpica пока не отдаёт отдельным эндпоинтом (см. discussions/128 в
+// jolpica-f1 — мейнтейнеры подтвердили, что это не планируется для
+// существующих /ergast эндпоинтов), поэтому для неё используем не этот
+// провайдер, а OpenF1 в отдельном сервисе.
+interface SprintPayload {
+  RaceTable: { season: string; Races: Array<{ SprintResults: RawResult[] }> };
+}
+
+/** Результаты спринт-гонки конкретного этапа. Пусто, если спринта на этом уик-энде нет или он не завершён. */
+export async function getSprintResults(round: number): Promise<RawResult[]> {
+  const data = await fetchJson<MRDataEnvelope<SprintPayload>>(`/current/${round}/sprint.json`);
+  return data.MRData.RaceTable.Races[0]?.SprintResults ?? [];
 }

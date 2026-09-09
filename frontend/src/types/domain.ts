@@ -80,10 +80,22 @@ export interface QualifyingResultEntry {
   q3: string | null;
 }
 
+export interface PracticeResultEntry {
+  position: number;
+  positionText: string;
+  driver: Pick<Driver, "id" | "fullName" | "code">;
+  constructor: Pick<Constructor, "id" | "name">;
+  bestLapTime: string | null;
+  gapToLeader: string | null;
+  laps: number;
+}
+
 export interface RaceDetailResponse {
   weekend: RaceWeekend;
   raceResults: RaceResultEntry[] | null;
   qualifyingResults: QualifyingResultEntry[] | null;
+  sprintResults: RaceResultEntry[] | null;
+  practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
 }
 
 export type ThemeMode = "telegram" | "light" | "dark";

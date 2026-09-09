@@ -18,6 +18,11 @@ export function mapRaceResults(raw: RawResult[]): RaceResultEntry[] {
   }));
 }
 
+// Sprint-гонка у Ergast/Jolpica — та же форма RawResult, что и обычная
+// гонка, поэтому отдельного маппера не нужно: mapRaceResults уже делает
+// ровно то же самое сведение полей.
+export const mapSprintResults = mapRaceResults;
+
 export function mapQualifyingResults(raw: RawQualifyingResult[]): QualifyingResultEntry[] {
   return raw.map((entry) => ({
     position: Number(entry.position),

@@ -1,10 +1,11 @@
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
-import { getQualifyingResults, getRaceResults } from "../providers/jolpica";
-import { mapQualifyingResults, mapRaceResults } from "../mappers/raceResults";
+import { getQualifyingResults, getRaceResults, getSprintResults } from "../providers/jolpica";
+import { mapQualifyingResults, mapRaceResults, mapSprintResults } from "../mappers/raceResults";
 import { getFastRaceResults } from "./liveResultsService";
+import { getPracticeResults } from "./practiceResultsService";
 import { getSeasonCalendar } from "./calendarService";
-import type { RaceDetailResponse, RaceResultEntry, RaceWeekend } from "../types";
+import type { PracticeResultEntry, RaceDetailResponse, RaceResultEntry, RaceWeekend, SessionType } from "../types";
 
 // Результаты в течение уик-энда могут дозаполняться (пенальти после
 // разбора стюардов и т.п.), поэтому TTL короткий — 5 минут. Как только
@@ -29,6 +30,45 @@ async function resolveRaceResults(env: Env, weekend: RaceWeekend): Promise<RaceR
   );
 }
 
+async function resolveSprintResults(env: Env, weekend: RaceWeekend): Promise<RaceResultEntry[] | null> {
+  // В отличие от гонки, для спринта пока нет отдельного OpenF1 fast-path —
+  // спринты значительно реже (не каждый уик-энд) и "быстрые" результаты
+  // там менее критичны, чем для основной гонки. При желании можно добавить
+  // симметрично resolveRaceResults, переиспользовав getFastRaceResults с
+  // sessionType="sprint" (сигнатура уже это поддерживает).
+  return getOrRefresh(env, `sprint:${weekend.id}`, RESULTS_TTL_SECONDS, () => getSprintResults(weekend.round)).then(
+    (raw) => (raw.length > 0 ? mapSprintResults(raw) : null),
+  );
+}
+
+async function resolvePracticeResults(
+  env: Env,
+  weekend: RaceWeekend,
+): Promise<Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>> {
+  const practiceTypes: SessionType[] = ["fp1", "fp2", "fp3"];
+  const relevant = practiceTypes.filter((type) => {
+    const session = weekend.sessions.find((s) => s.type === type);
+    return session && session.status !== "upcoming";
+  }) as Array<"fp1" | "fp2" | "fp3">;
+
+  if (relevant.length === 0) return {};
+
+  const results = await Promise.all(
+    relevant.map((type) =>
+      getPracticeResults(env, weekend, type).catch((err) => {
+        console.error(`OpenF1 practice results failed for ${weekend.id}/${type}:`, err);
+        return null;
+      }),
+    ),
+  );
+
+  const out: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>> = {};
+  relevant.forEach((type, i) => {
+    out[type] = results[i];
+  });
+  return out;
+}
+
 export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailResponse | null> {
   const { races } = await getSeasonCalendar(env);
   const weekend = races.find((race) => race.id === id);
@@ -36,22 +76,27 @@ export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailRes
 
   const qualifyingSession = weekend.sessions.find((s) => s.type === "qualifying");
   const raceSession = weekend.sessions.find((s) => s.type === "race");
+  const sprintSession = weekend.sessions.find((s) => s.type === "sprint");
 
-  const [qualifyingResults, raceResults] = await Promise.all([
+  const [qualifyingResults, raceResults, sprintResults, practiceResults] = await Promise.all([
     qualifyingSession && qualifyingSession.status !== "upcoming"
       ? getOrRefresh(env, `qualifying:${id}`, RESULTS_TTL_SECONDS, () => getQualifyingResults(weekend.round)).then(
           mapQualifyingResults,
         )
       : Promise.resolve(null),
     raceSession && raceSession.status !== "upcoming" ? resolveRaceResults(env, weekend) : Promise.resolve(null),
+    sprintSession && sprintSession.status !== "upcoming" ? resolveSprintResults(env, weekend) : Promise.resolve(null),
+    resolvePracticeResults(env, weekend),
   ]);
 
   // Апстрим публикует официальные результаты не мгновенно после финиша —
   // пока их нет, отдаём null, а не пустой массив, чтобы фронт мог
-  // отличить "результатов ещё нет" от "гонка не началась".
+  // отличить "результатов ещё нет" от "сессия не началась".
   return {
     weekend,
     qualifyingResults: qualifyingResults && qualifyingResults.length > 0 ? qualifyingResults : null,
     raceResults: raceResults && raceResults.length > 0 ? raceResults : null,
+    sprintResults: sprintResults && sprintResults.length > 0 ? sprintResults : null,
+    practiceResults,
   };
 }

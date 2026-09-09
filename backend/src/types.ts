@@ -139,8 +139,28 @@ export interface QualifyingResultEntry {
   q3: string | null;
 }
 
+// Источник — OpenF1 (Jolpica принципиально не отдаёт результаты практик,
+// см. комментарий у getSprintResults в providers/jolpica.ts). Форма
+// заметно проще: нет очков/статуса финиша, только позиция по лучшему кругу
+// и отставание от лидера сессии.
+export interface PracticeResultEntry {
+  position: number;
+  positionText: string; // "1".."20" | "DNF" — DNS/DSQ в практиках Ergast-статусов нет, OpenF1 даёт только dnf
+  driver: Pick<Driver, "id" | "fullName" | "code">;
+  constructor: Pick<Constructor, "id" | "name">;
+  bestLapTime: string | null; // "1:21.045", null если пилот не поехал/не показал время
+  gapToLeader: string | null; // "+0.351", null для лидера сессии или если время неизвестно
+  laps: number;
+}
+
 export interface RaceDetailResponse {
   weekend: RaceWeekend;
   raceResults: RaceResultEntry[] | null;
   qualifyingResults: QualifyingResultEntry[] | null;
+  sprintResults: RaceResultEntry[] | null;
+  // Ключи — только те fp1/fp2/fp3, что реально есть в расписании уик-энда
+  // (RaceWeekend.sessions); отсутствующая сессия — отсутствующий ключ, а не
+  // null, чтобы фронт мог отличить "сессии нет в расписании" от "результаты
+  // сессии ещё не появились".
+  practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
 }

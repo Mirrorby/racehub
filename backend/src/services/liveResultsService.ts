@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
 import * as openf1 from "../providers/openf1";
 import { getDriverStandings, getConstructorStandings } from "../providers/jolpica";
-import type { RaceResultEntry, RaceWeekend, Standing } from "../types";
+import type { RaceResultEntry, RaceWeekend, SessionType, Standing } from "../types";
 
 // Данные OpenF1 сами по себе появляются быстро (минуты после гонки), но
 // мы всё равно кэшируем на пару минут, чтобы не дёргать апстрим на
@@ -12,14 +12,26 @@ const FAST_PATH_TTL_SECONDS = 2 * 60;
 // как сессия состоялась, поэтому кэшируем его надолго.
 const SESSION_LOOKUP_TTL_SECONDS = 6 * 60 * 60;
 
-async function findSessionCached(
+// Наш внутренний SessionType -> имя сессии в терминах OpenF1 (`session_name`).
+const OPENF1_SESSION_NAME: Record<SessionType, Parameters<typeof openf1.findSession>[1]> = {
+  fp1: "Practice 1",
+  fp2: "Practice 2",
+  fp3: "Practice 3",
+  sprint_quali: "Sprint Qualifying",
+  sprint: "Sprint",
+  qualifying: "Qualifying",
+  race: "Race",
+};
+
+export async function findSessionCached(
   env: Env,
   weekend: RaceWeekend,
-  sessionType: "Race" | "Qualifying",
+  sessionType: SessionType,
 ): Promise<openf1.RawOpenF1Session | null> {
-  const session = weekend.sessions.find((s) => s.type === (sessionType === "Race" ? "race" : "qualifying"));
+  const session = weekend.sessions.find((s) => s.type === sessionType);
   if (!session) return null;
 
+  const openf1Name = OPENF1_SESSION_NAME[sessionType];
   const cacheKey = `openf1:session:${weekend.id}:${sessionType}`;
   const cached = await env.DB.prepare("SELECT payload, expires_at FROM api_cache WHERE cache_key = ?")
     .bind(cacheKey)
@@ -28,7 +40,7 @@ async function findSessionCached(
     return JSON.parse(cached.payload) as openf1.RawOpenF1Session;
   }
 
-  const found = await openf1.findSession(weekend.season, sessionType, session.startUtc);
+  const found = await openf1.findSession(weekend.season, openf1Name, session.startUtc);
   // Кэшируем надолго только удачный результат — session_key стабилен раз
   // найден. "Не нашли" НЕ кэшируем: если закэшировать null на 6 часов, а
   // OpenF1 создаст сессию чуть позже (граничный случай на самом первом
@@ -55,7 +67,7 @@ interface DriverIndexEntry {
 }
 
 /** code (VER/HAM/...) -> {id, fullName} из уже закэшированных Jolpica-standings. */
-async function buildDriverCodeIndex(env: Env): Promise<Map<string, DriverIndexEntry>> {
+export async function buildDriverCodeIndex(env: Env): Promise<Map<string, DriverIndexEntry>> {
   const { standings } = await getOrRefresh(env, "standings:drivers", 15 * 60, getDriverStandings);
   const index = new Map<string, DriverIndexEntry>();
   for (const entry of standings) {
@@ -70,12 +82,12 @@ interface ConstructorIndexEntry {
   name: string;
 }
 
-function normalizeTeamName(name: string): string {
+export function normalizeTeamName(name: string): string {
   return name.trim().toLowerCase();
 }
 
 /** normalized team name -> {id, name} из уже закэшированных Jolpica-standings. */
-async function buildConstructorNameIndex(env: Env): Promise<Map<string, ConstructorIndexEntry>> {
+export async function buildConstructorNameIndex(env: Env): Promise<Map<string, ConstructorIndexEntry>> {
   const { standings } = await getOrRefresh(env, "standings:constructors", 15 * 60, getConstructorStandings);
   const index = new Map<string, ConstructorIndexEntry>();
   for (const entry of standings) {
@@ -95,7 +107,19 @@ function positionText(row: openf1.RawOpenF1SessionResult): string {
   if (row.dsq) return "D";
   if (row.dns) return "W";
   if (row.dnf) return "R";
-  return String(row.position);
+  return row.position != null ? String(row.position) : "—";
+}
+
+// DSQ/DNS у OpenF1 приходят с position: null (см. тесты в docs.rs/crate/openf1
+// — я изначально не учёл это в типе RawOpenF1SessionResult, поэтому текущий
+// прод, скорее всего, писал `NaN` в отсортированный список при дисквалификации
+// — сортировка `.sort((a,b) => a.position - b.position)` с NaN даёт
+// непредсказуемый порядок, но не падает. Не баг именно этого PR, но раз уж
+// делаю тип точным — заодно чиню и сортировку: диски/неявки уходят в конец.
+const UNRANKED_SORT_POSITION = 9999;
+
+function sortablePosition(row: openf1.RawOpenF1SessionResult): number {
+  return row.position ?? UNRANKED_SORT_POSITION;
 }
 
 /**
@@ -109,7 +133,7 @@ function positionText(row: openf1.RawOpenF1SessionResult): string {
  * (результаты именно гонки приходили на несколько часов позже, чем хотелось).
  */
 export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promise<RaceResultEntry[] | null> {
-  const session = await findSessionCached(env, weekend, "Race");
+  const session = await findSessionCached(env, weekend, "race");
   if (!session) return null;
 
   return getOrRefresh(env, `openf1:results:${weekend.id}`, FAST_PATH_TTL_SECONDS, async () => {
@@ -147,12 +171,12 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
         };
 
         return {
-          position: row.position,
+          position: sortablePosition(row),
           positionText: positionText(row),
           driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName },
           constructor,
           grid: gridByNumber.get(row.driver_number) ?? 0,
-          laps: row.number_of_laps,
+          laps: row.number_of_laps ?? 0,
           status: resultStatus(row),
           points: row.points,
         };
@@ -165,7 +189,7 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
 
 /** Быстрый личный зачёт через OpenF1 championship_drivers, снятый сразу после последней прошедшей гонки. */
 export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend): Promise<Standing[] | null> {
-  const session = await findSessionCached(env, latestRace, "Race");
+  const session = await findSessionCached(env, latestRace, "race");
   if (!session) return null;
 
   return getOrRefresh(env, `openf1:standings:drivers:${latestRace.id}`, FAST_PATH_TTL_SECONDS, async () => {
@@ -206,7 +230,7 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
 
 /** Быстрый кубок конструкторов через OpenF1 championship_teams. */
 export async function getFastConstructorStandings(env: Env, latestRace: RaceWeekend): Promise<Standing[] | null> {
-  const session = await findSessionCached(env, latestRace, "Race");
+  const session = await findSessionCached(env, latestRace, "race");
   if (!session) return null;
 
   return getOrRefresh(env, `openf1:standings:constructors:${latestRace.id}`, FAST_PATH_TTL_SECONDS, async () => {
