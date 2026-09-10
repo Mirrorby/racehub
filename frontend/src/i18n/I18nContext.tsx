@@ -1,4 +1,4 @@
-mport { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 export type Language = "en" | "ru";
 
