@@ -38,6 +38,11 @@ export interface RawOpenF1Driver {
   full_name: string;
   name_acronym: string; // например "VER" — совпадает с Driver.code у Ergast/Jolpica
   team_name: string;
+  // Официальный цвет команды, как его показывает трансляция F1 (без "#",
+  // напр. "F47600"). Источник живой и не требует ручного обновления по
+  // межсезоньям — предпочтительнее статичной таблицы в mappers/teamColors.ts,
+  // которую используем только как fallback, если OpenF1 недоступен.
+  team_colour: string;
 }
 
 export interface RawOpenF1SessionResult {

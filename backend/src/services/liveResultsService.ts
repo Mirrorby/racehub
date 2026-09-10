@@ -199,7 +199,10 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
     ]);
     if (championship.length === 0) return null;
 
-    const driverCodeIndex = await buildDriverCodeIndex(env);
+    const [driverCodeIndex, constructorNameIndex] = await Promise.all([
+      buildDriverCodeIndex(env),
+      buildConstructorNameIndex(env),
+    ]);
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
 
     const sorted = [...championship].sort((a, b) => a.position_current - b.position_current);
@@ -213,14 +216,24 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
           id: `openf1-${row.driver_number}`,
           fullName: driverMeta.full_name,
         };
+        // Раньше здесь constructor всегда был undefined, а teamColor не
+        // проставлялся вовсе — тема команды на карточке пилота молча
+        // ломалась всякий раз, когда активировался этот быстрый путь.
+        // Здесь же лежит team_colour от OpenF1, поэтому заодно используем
+        // его как основной источник цвета вместо статичной таблицы.
+        const color = `#${driverMeta.team_colour}`;
+        const constructorMeta = constructorNameIndex.get(normalizeTeamName(driverMeta.team_name)) ?? {
+          id: normalizeTeamName(driverMeta.team_name).replace(/\s+/g, "_"),
+          name: driverMeta.team_name,
+        };
         return {
           position: row.position_current,
           points: row.points_current,
           wins: 0, // OpenF1 championship_drivers не отдаёт число побед отдельно
           gapToLeader: row.points_current === leaderPoints ? 0 : leaderPoints - row.points_current,
           movement: "unknown" as const,
-          driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName },
-          constructor: undefined,
+          driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName, teamColor: color },
+          constructor: { id: constructorMeta.id, name: constructorMeta.name, color },
         };
       });
 
@@ -234,16 +247,28 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
   if (!session) return null;
 
   return getOrRefresh(env, `openf1:standings:constructors:${latestRace.id}`, FAST_PATH_TTL_SECONDS, async () => {
-    const championship = await openf1.getChampionshipTeams(session.session_key);
+    const [championship, drivers] = await Promise.all([
+      openf1.getChampionshipTeams(session.session_key),
+      openf1.getSessionDrivers(session.session_key),
+    ]);
     if (championship.length === 0) return null;
 
     const constructorNameIndex = await buildConstructorNameIndex(env);
+    // championship_teams не содержит team_colour — берём его с любого
+    // пилота этой же команды из уже загруженного списка drivers сессии.
+    const colorByTeamName = new Map<string, string>();
+    for (const d of drivers) {
+      const key = normalizeTeamName(d.team_name);
+      if (!colorByTeamName.has(key)) colorByTeamName.set(key, `#${d.team_colour}`);
+    }
+
     const sorted = [...championship].sort((a, b) => a.position_current - b.position_current);
     const leaderPoints = sorted[0]?.points_current ?? 0;
 
     const result: Standing[] = sorted.map((row) => {
-      const constructor = constructorNameIndex.get(normalizeTeamName(row.team_name)) ?? {
-        id: normalizeTeamName(row.team_name).replace(/\s+/g, "_"),
+      const key = normalizeTeamName(row.team_name);
+      const constructor = constructorNameIndex.get(key) ?? {
+        id: key.replace(/\s+/g, "_"),
         name: row.team_name,
       };
       return {
@@ -252,10 +277,49 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
         wins: 0,
         gapToLeader: row.points_current === leaderPoints ? 0 : leaderPoints - row.points_current,
         movement: "unknown" as const,
-        constructor,
+        constructor: { ...constructor, color: colorByTeamName.get(key) },
       };
     });
 
     return result.length > 0 ? result : null;
   });
+}
+
+const TEAM_COLOR_TTL_SECONDS = 6 * 60 * 60;
+
+/**
+ * constructorId -> "#RRGGBB" из официального team_colour OpenF1, снятого с
+ * самой недавней прошедшей сессии сезона. Используется как основной
+ * источник цвета команды вместо статичной таблицы mappers/teamColors.ts —
+ * не требует ручного обновления по межсезоньям/ребрендингам. Возвращает
+ * пустую карту (не ошибку), если OpenF1 недоступен или сессию ещё не
+ * нашли — вызывающий код должен в этом случае просто откатиться на
+ * статичную таблицу для тех constructorId, которых нет в карте.
+ */
+export async function getLiveTeamColors(env: Env, latestRace: RaceWeekend | null): Promise<Map<string, string>> {
+  if (!latestRace) return new Map();
+  const session = await findSessionCached(env, latestRace, "race");
+  if (!session) return new Map();
+
+  // getOrRefresh кэширует через JSON.stringify — Map через него сериализуется
+  // в "{}" (теряет все данные) и на втором запросе (cache hit) молча вернула
+  // бы пустой объект вместо Map, а любой .get() на нём уронил бы весь запрос
+  // рантайм-ошибкой. Поэтому кэшируем как обычный Record, а Map собираем
+  // уже на выходе из функции.
+  const plain = await getOrRefresh(env, `openf1:team-colors:${latestRace.id}`, TEAM_COLOR_TTL_SECONDS, async () => {
+    const [drivers, constructorNameIndex] = await Promise.all([
+      openf1.getSessionDrivers(session.session_key),
+      buildConstructorNameIndex(env),
+    ]);
+    const record: Record<string, string> = {};
+    for (const d of drivers) {
+      const constructor = constructorNameIndex.get(normalizeTeamName(d.team_name));
+      if (constructor && !(constructor.id in record)) {
+        record[constructor.id] = `#${d.team_colour}`;
+      }
+    }
+    return record;
+  });
+
+  return new Map(Object.entries(plain));
 }
