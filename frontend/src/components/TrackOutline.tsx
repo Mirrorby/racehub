@@ -83,6 +83,18 @@ export function TrackOutline({ circuitId, className, animated = true }: TrackOut
       const impulse = path.cloneNode() as SVGPathElement;
       impulse.classList.remove("pp-track-outline__base");
       impulse.classList.add("pp-track-outline__impulse");
+      // Критично: сам SVG-файл задаёт stroke/stroke-width/stroke-dasharray
+      // через inline style="..." (см. источник в /public/assets/tracks),
+      // а inline-стили всегда перебивают внешние CSS-классы для тех же
+      // свойств. Класс pp-track-outline__impulse в global.css задаёт
+      // анимацию и цвет, но НЕ может продавить stroke-dasharray через
+      // класс — значит его нужно проставить прямо здесь, в JS, поверх
+      // того же inline-атрибута. Без этого stroke-dasharray остаётся
+      // "none" (сплошная линия), и анимация stroke-dashoffset визуально
+      // ничего не меняет — ровно то, что было до этого фикса.
+      impulse.style.strokeDasharray = "60 940";
+      impulse.style.strokeLinecap = "round";
+      impulse.style.strokeWidth = "28";
       if (circuitId && REVERSE_DIRECTION[circuitId]) {
         impulse.classList.add("pp-track-outline__impulse--reverse");
       }
