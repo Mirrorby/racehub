@@ -77,6 +77,16 @@ export async function buildDriverCodeIndex(env: Env): Promise<Map<string, Driver
   return index;
 }
 
+/** driverId -> число побед в сезоне из Jolpica-standings. См. комментарий у getFastDriverStandings — OpenF1 не отдаёт эту цифру отдельно. */
+export async function buildDriverWinsIndex(env: Env): Promise<Map<string, number>> {
+  const { standings } = await getOrRefresh(env, "standings:drivers", 15 * 60, getDriverStandings);
+  const index = new Map<string, number>();
+  for (const entry of standings) {
+    index.set(entry.Driver.driverId, Number(entry.wins));
+  }
+  return index;
+}
+
 interface ConstructorIndexEntry {
   id: string;
   name: string;
@@ -92,6 +102,16 @@ export async function buildConstructorNameIndex(env: Env): Promise<Map<string, C
   const index = new Map<string, ConstructorIndexEntry>();
   for (const entry of standings) {
     index.set(normalizeTeamName(entry.Constructor.name), { id: entry.Constructor.constructorId, name: entry.Constructor.name });
+  }
+  return index;
+}
+
+/** constructorId -> число побед в сезоне из Jolpica-standings. Тот же приём, что buildDriverWinsIndex — OpenF1 championship_teams этой цифры не отдаёт. */
+export async function buildConstructorWinsIndex(env: Env): Promise<Map<string, number>> {
+  const { standings } = await getOrRefresh(env, "standings:constructors", 15 * 60, getConstructorStandings);
+  const index = new Map<string, number>();
+  for (const entry of standings) {
+    index.set(entry.Constructor.constructorId, Number(entry.wins));
   }
   return index;
 }
@@ -199,9 +219,15 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
     ]);
     if (championship.length === 0) return null;
 
-    const [driverCodeIndex, constructorNameIndex] = await Promise.all([
+    const [driverCodeIndex, constructorNameIndex, winsByDriverId] = await Promise.all([
       buildDriverCodeIndex(env),
       buildConstructorNameIndex(env),
+      // OpenF1 championship_drivers не отдаёт число побед отдельно — берём
+      // его из уже закэшированных (15 мин TTL) Jolpica-standings. Может на
+      // одну гонку отставать от реальности в первые минуты после финиша
+      // (пока Jolpica не обновился), но это всё равно точнее, чем
+      // захардкоженный 0 для каждого пилота, который был здесь раньше.
+      buildDriverWinsIndex(env),
     ]);
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
 
@@ -229,10 +255,24 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
         return {
           position: row.position_current,
           points: row.points_current,
-          wins: 0, // OpenF1 championship_drivers не отдаёт число побед отдельно
+          wins: winsByDriverId.get(driver.id) ?? 0,
           gapToLeader: row.points_current === leaderPoints ? 0 : leaderPoints - row.points_current,
           movement: "unknown" as const,
-          driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName, teamColor: color },
+          // ВАЖНО: number/constructorId/constructorName у Standing.driver
+          // объявлены как Partial (см. types.ts) — то есть отсутствие
+          // этих полей НЕ ловится компилятором, а тихо рендерится как
+          // пустая строка/прочерк на фронте (Team/Number в General
+          // Information). Раньше их здесь не было вовсе — баг был не
+          // виден на tsc, только глазами на реальном экране.
+          driver: {
+            id: driver.id,
+            code: driverMeta.name_acronym,
+            fullName: driver.fullName,
+            number: row.driver_number,
+            constructorId: constructorMeta.id,
+            constructorName: constructorMeta.name,
+            teamColor: color,
+          },
           constructor: { id: constructorMeta.id, name: constructorMeta.name, color },
         };
       });
@@ -253,7 +293,10 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
     ]);
     if (championship.length === 0) return null;
 
-    const constructorNameIndex = await buildConstructorNameIndex(env);
+    const [constructorNameIndex, winsByConstructorId] = await Promise.all([
+      buildConstructorNameIndex(env),
+      buildConstructorWinsIndex(env),
+    ]);
     // championship_teams не содержит team_colour — берём его с любого
     // пилота этой же команды из уже загруженного списка drivers сессии.
     const colorByTeamName = new Map<string, string>();
@@ -274,7 +317,7 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
       return {
         position: row.position_current,
         points: row.points_current,
-        wins: 0,
+        wins: winsByConstructorId.get(constructor.id) ?? 0,
         gapToLeader: row.points_current === leaderPoints ? 0 : leaderPoints - row.points_current,
         movement: "unknown" as const,
         constructor: { ...constructor, color: colorByTeamName.get(key) },

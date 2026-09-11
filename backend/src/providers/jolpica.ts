@@ -240,14 +240,23 @@ export async function getSprintResults(round: number): Promise<RawResult[]> {
 // как обязательный параметр ("Season (required)" в доке) — эндпоинта
 // "вся история одним запросом" не существует. Титулы поэтому считаются
 // через отдельный цикл по сезонам, а не одним вызовом.
-
-interface TotalOnlyEnvelope {
-  MRData: { total: string };
-}
+//
+// КРИТИЧНО: все ответы Jolpica оборачивают полезные данные внутрь MRData —
+// {"MRData": {"total": "...", "DriverTable": {...}}}, а НЕ
+// {"MRData": {"total": "..."}, "DriverTable": {...}} как было в первой
+// версии этого блока. Первая версия компилировалась (fetchJson<T> просто
+// кастует ответ через "as T" без рантайм-проверки), но падала на реальных
+// данных с "Cannot read properties of undefined" при любом обращении к
+// DriverTable/RaceTable/StandingsTable — ровно то, что показывали "Data is
+// temporarily unavailable" на Career и Track Statistics экранах. Все типы
+// ниже переписаны с правильной вложенностью и сверены с реальными живыми
+// ответами API, а не только с документацией.
 
 interface ResultsPageResponse {
-  MRData: { total: string; limit: string; offset: string };
-  RaceTable: { Races: Array<{ season: string; Results: Array<{ position: string; points: string }> }> };
+  MRData: {
+    total: string;
+    RaceTable: { Races: Array<{ season: string; Results: Array<{ position: string; points: string }> }> };
+  };
 }
 
 export interface CareerResultsSummary {
@@ -280,7 +289,7 @@ async function aggregateCareerResults(entityPathPrefix: string): Promise<CareerR
   for (let page = 0; page < maxPages; page++) {
     const offset = page * pageSize;
     const data = await fetchJson<ResultsPageResponse>(`${entityPathPrefix}/results.json?limit=${pageSize}&offset=${offset}`);
-    for (const race of data.RaceTable.Races) {
+    for (const race of data.MRData.RaceTable.Races) {
       const season = Number(race.season);
       firstSeason = Math.min(firstSeason, season);
       lastSeason = Math.max(lastSeason, season);
@@ -318,8 +327,10 @@ export function getConstructorCareerResults(constructorId: string): Promise<Care
 }
 
 interface QualifyingPageResponse {
-  MRData: { total: string };
-  RaceTable: { Races: Array<{ QualifyingResults: Array<{ position: string }> }> };
+  MRData: {
+    total: string;
+    RaceTable: { Races: Array<{ QualifyingResults: Array<{ position: string }> }> };
+  };
 }
 
 /**
@@ -336,7 +347,7 @@ export async function getCareerPoles(driverId: string): Promise<number> {
     const data = await fetchJson<QualifyingPageResponse>(
       `/drivers/${driverId}/qualifying.json?limit=${pageSize}&offset=${offset}`,
     );
-    for (const race of data.RaceTable.Races) {
+    for (const race of data.MRData.RaceTable.Races) {
       if (race.QualifyingResults[0]?.position === "1") poles++;
     }
     const total = Number(data.MRData.total);
@@ -345,64 +356,65 @@ export async function getCareerPoles(driverId: string): Promise<number> {
   return poles;
 }
 
-interface SeasonsPayload {
-  SeasonTable: { Seasons: Array<{ season: string }> };
+interface SeasonsResponse {
+  MRData: { SeasonTable: { Seasons: Array<{ season: string }> } };
 }
 
 /** Список сезонов, в которых пилот/команда стартовали хотя бы раз — источник для подсчёта титулов по сезонам. */
 export async function getEntitySeasons(entityPathPrefix: string): Promise<number[]> {
-  const data = await fetchJson<{ MRData: SeasonsPayload }>(`${entityPathPrefix}/seasons.json?limit=100`);
+  const data = await fetchJson<SeasonsResponse>(`${entityPathPrefix}/seasons.json?limit=100`);
   return data.MRData.SeasonTable.Seasons.map((s) => Number(s.season));
 }
 
-interface DriverStandingsSeasonPayload {
-  StandingsTable: { StandingsLists: Array<{ DriverStandings: RawDriverStanding[] }> };
+interface DriverStandingsSeasonResponse {
+  MRData: { StandingsTable: { StandingsLists: Array<{ DriverStandings: RawDriverStanding[] }> } };
 }
 
 /** Итоговая позиция пилота в чемпионате за конкретный сезон (для подсчёта титулов). null, если пилот в этом сезоне не классифицирован (крайне редкий случай). */
 export async function getDriverSeasonPosition(season: number, driverId: string): Promise<number | null> {
-  const data = await fetchJson<DriverStandingsSeasonPayload>(`/${season}/drivers/${driverId}/driverstandings.json`);
-  const entry = data.StandingsTable.StandingsLists[0]?.DriverStandings[0];
+  const data = await fetchJson<DriverStandingsSeasonResponse>(`/${season}/drivers/${driverId}/driverstandings.json`);
+  const entry = data.MRData.StandingsTable.StandingsLists[0]?.DriverStandings[0];
   return entry ? Number(entry.position) : null;
 }
 
-interface ConstructorStandingsSeasonPayload {
-  StandingsTable: { StandingsLists: Array<{ ConstructorStandings: RawConstructorStanding[] }> };
+interface ConstructorStandingsSeasonResponse {
+  MRData: { StandingsTable: { StandingsLists: Array<{ ConstructorStandings: RawConstructorStanding[] }> } };
 }
 
 export async function getConstructorSeasonPosition(season: number, constructorId: string): Promise<number | null> {
-  const data = await fetchJson<ConstructorStandingsSeasonPayload>(
+  const data = await fetchJson<ConstructorStandingsSeasonResponse>(
     `/${season}/constructors/${constructorId}/constructorstandings.json`,
   );
-  const entry = data.StandingsTable.StandingsLists[0]?.ConstructorStandings[0];
+  const entry = data.MRData.StandingsTable.StandingsLists[0]?.ConstructorStandings[0];
   return entry ? Number(entry.position) : null;
 }
 
-interface DriverInfoPayload {
-  DriverTable: { Drivers: RawDriver[] };
+interface DriverInfoResponse {
+  MRData: { DriverTable: { Drivers: RawDriver[] } };
 }
 
 export async function getDriverInfo(driverId: string): Promise<RawDriver | null> {
-  const data = await fetchJson<DriverInfoPayload>(`/drivers/${driverId}.json`);
-  return data.DriverTable.Drivers[0] ?? null;
+  const data = await fetchJson<DriverInfoResponse>(`/drivers/${driverId}.json`);
+  return data.MRData.DriverTable.Drivers[0] ?? null;
 }
 
 // ---- История трассы ----
 
-interface CircuitRacesPayload {
-  MRData: { total: string };
-  RaceTable: { Races: RawRace[] };
+interface CircuitRacesResponse {
+  MRData: { total: string; RaceTable: { Races: RawRace[] } };
 }
 
 /** Все гонки на трассе за всю историю (без результатов — только расписание). circuits/{id}/races.json не требует season и пагинируется по гонкам, а не по строкам результатов, поэтому один limit=100 покрывает даже Монцу (~76 Гран-при). */
 export async function getCircuitRaces(circuitId: string): Promise<RawRace[]> {
-  const data = await fetchJson<CircuitRacesPayload>(`/circuits/${circuitId}/races.json?limit=100`);
-  return data.RaceTable.Races;
+  const data = await fetchJson<CircuitRacesResponse>(`/circuits/${circuitId}/races.json?limit=100`);
+  return data.MRData.RaceTable.Races;
 }
 
-interface CircuitResultsPayload {
-  MRData: { total: string };
-  RaceTable: { Races: Array<{ season: string; Results: Array<{ position: string; Driver: RawDriver; Constructor: RawConstructor }> }> };
+interface CircuitResultsResponse {
+  MRData: {
+    total: string;
+    RaceTable: { Races: Array<{ season: string; Results: Array<{ position: string; Driver: RawDriver; Constructor: RawConstructor }> }> };
+  };
 }
 
 /**
@@ -418,27 +430,31 @@ interface CircuitResultsPayload {
  * Джидда, Мадрид) статистика посчитается, для старых легендарных трасс —
  * нет, пока не появится более дешёвый способ её получить.
  */
-export async function getCircuitAllResultsIfFits(circuitId: string): Promise<CircuitResultsPayload["RaceTable"]["Races"] | null> {
-  const data = await fetchJson<CircuitResultsPayload>(`/circuits/${circuitId}/results.json?limit=100`);
+export async function getCircuitAllResultsIfFits(
+  circuitId: string,
+): Promise<CircuitResultsResponse["MRData"]["RaceTable"]["Races"] | null> {
+  const data = await fetchJson<CircuitResultsResponse>(`/circuits/${circuitId}/results.json?limit=100`);
   if (Number(data.MRData.total) > 100) return null;
-  return data.RaceTable.Races;
+  return data.MRData.RaceTable.Races;
 }
 
-interface FastestLapPayload {
-  RaceTable: {
-    Races: Array<{
-      season: string;
-      Results: Array<{
-        Driver: RawDriver;
-        Constructor: RawConstructor;
-        FastestLap?: { rank: string; lap: string; Time: { time: string } };
+interface FastestLapResponse {
+  MRData: {
+    RaceTable: {
+      Races: Array<{
+        season: string;
+        Results: Array<{
+          Driver: RawDriver;
+          Constructor: RawConstructor;
+          FastestLap?: { rank: string; lap: string; Time: { time: string } };
+        }>;
       }>;
-    }>;
+    };
   };
 }
 
 /** Все обладатели быстрейшего круга гонки на трассе за всю историю — источник рекорда круга. Использует документированный фильтр fastest/1 (один ряд на гонку), поэтому пагинация безопасна. FastestLap появился у Ergast только с 2004 года — для трасс без гонок с тех пор вернёт пусто. */
-export async function getCircuitFastestLaps(circuitId: string): Promise<FastestLapPayload["RaceTable"]["Races"]> {
-  const data = await fetchJson<FastestLapPayload>(`/circuits/${circuitId}/fastest/1/results.json?limit=100`);
-  return data.RaceTable.Races;
+export async function getCircuitFastestLaps(circuitId: string): Promise<FastestLapResponse["MRData"]["RaceTable"]["Races"]> {
+  const data = await fetchJson<FastestLapResponse>(`/circuits/${circuitId}/fastest/1/results.json?limit=100`);
+  return data.MRData.RaceTable.Races;
 }
