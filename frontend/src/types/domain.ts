@@ -96,7 +96,7 @@ export interface RaceDetailResponse {
   qualifyingResults: QualifyingResultEntry[] | null;
   sprintResults: RaceResultEntry[] | null;
   practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
-  sprintQualifyingResults: PracticeResultEntry[] | null;
+  sprintQualifyingResults: QualifyingResultEntry[] | null;
 }
 
 export interface DriverCareerStats {

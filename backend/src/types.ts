@@ -163,7 +163,7 @@ export interface RaceDetailResponse {
   // null, чтобы фронт мог отличить "сессии нет в расписании" от "результаты
   // сессии ещё не появились".
   practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>>;
-  sprintQualifyingResults: PracticeResultEntry[] | null;
+  sprintQualifyingResults: QualifyingResultEntry[] | null;
 }
 
 export interface DriverCareerStats {

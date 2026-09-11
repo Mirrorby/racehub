@@ -149,3 +149,42 @@ export async function getChampionshipDrivers(sessionKey: number): Promise<RawOpe
 export async function getChampionshipTeams(sessionKey: number): Promise<RawOpenF1ChampionshipTeam[]> {
   return fetchJson<RawOpenF1ChampionshipTeam[]>(`/championship_teams?session_key=${sessionKey}`);
 }
+
+export interface RawOpenF1Lap {
+  driver_number: number;
+  lap_number: number;
+  // Может быть null даже для реально пройденного круга — известный
+  // пробел в самом OpenF1 (см. issue #30 в их репозитории), не наша
+  // ошибка парсинга. Отфильтровываем такие круги, а не считаем их 0.
+  lap_duration: number | null;
+  is_pit_out_lap: boolean;
+}
+
+/**
+ * Круги пилотов за сессию. Единственный надёжный способ получить
+ * результаты практик: `/session_result` документирован как поддерживающий
+ * все типы сессий, но по факту (подтверждено несколькими независимыми
+ * источниками, включая официальную оговорку OpenF1 "Practice sessions:
+ * Limited data compared to races") для практик он либо пуст, либо
+ * ненадёжен. Практики поэтому считаем сами: лучший круг = минимальный
+ * lap_duration среди кругов, не являющихся выездом из пит-лейна.
+ */
+export async function getLaps(sessionKey: number): Promise<RawOpenF1Lap[]> {
+  return fetchJson<RawOpenF1Lap[]>(`/laps?session_key=${sessionKey}`);
+}
+
+export interface RawOpenF1Position {
+  driver_number: number;
+  position: number;
+  date: string;
+}
+
+/**
+ * Позиции пилотов в сессии как последовательность изменений (запись
+ * добавляется только когда позиция меняется, не непрерывно). Чтобы
+ * получить финальную позицию на конец сессии — берём запись с самой
+ * поздней датой на каждого пилота.
+ */
+export async function getPositions(sessionKey: number): Promise<RawOpenF1Position[]> {
+  return fetchJson<RawOpenF1Position[]>(`/position?session_key=${sessionKey}`);
+}
