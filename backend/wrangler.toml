@@ -23,3 +23,7 @@ crons = ["*/5 * * * *"]
 # Секрет задаётся отдельно и не хранится в репозитории:
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN
 # (или Cloudflare Dashboard → Worker → Settings → Variables and Secrets)
+
+[observability.logs]
+enabled = true
+invocation_logs = true
