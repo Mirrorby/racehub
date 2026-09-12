@@ -53,14 +53,22 @@ async function resolvePracticeResults(
 
   if (relevant.length === 0) return {};
 
-  const results = await Promise.all(
-    relevant.map((type) =>
-      getPracticeResults(env, weekend, type).catch((err) => {
-        console.error(`OpenF1 practice results failed for ${weekend.id}/${type}:`, err);
-        return null;
-      }),
-    ),
-  );
+  // Последовательно, не Promise.all — на странице гонки это уже пятый+
+  // параллельный поход в OpenF1 (race/sprint_quali туда же), а у OpenF1
+  // нет опубликованных официальных лимитов, но на практике он регулярно
+  // отдаёт 429 именно на таких "холодных" всплесках — подтверждено
+  // независимо другим реально работающим F1-компаньоном на той же связке
+  // API. Retry с backoff в fetchJson (providers/openf1.ts) уже спасает от
+  // единичного 429, но не отменяет смысла просто не долбить впараллель
+  // тем, что не обязано быть мгновенным (в отличие от race-результатов).
+  const results: Array<PracticeResultEntry[] | null> = [];
+  for (const type of relevant) {
+    const result = await getPracticeResults(env, weekend, type).catch((err) => {
+      console.error(`OpenF1 practice results failed for ${weekend.id}/${type}:`, err);
+      return null;
+    });
+    results.push(result);
+  }
 
   const out: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>> = {};
   relevant.forEach((type, i) => {

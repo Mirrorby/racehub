@@ -15,13 +15,59 @@
  */
 
 const BASE_URL = "https://api.openf1.org/v1";
+const MAX_RETRIES = 3;
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, { headers: { Accept: "application/json" } });
-  if (!response.ok) {
-    throw new Error(`OpenF1 API ${response.status} for ${path}`);
+export class OpenF1ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "OpenF1ApiError";
   }
-  return (await response.json()) as T;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * ВАЖНО: у OpenF1 нет опубликованных официальных лимитов, но на практике
+ * он регулярно отдаёт 429 — это подтверждено независимо другим реально
+ * работающим F1-компаньоном на той же связке OpenF1+Jolpica ("soggetta a
+ * rate-limit 429, specialmente a freddo" — особенно при холодном старте,
+ * т.е. когда несколько вкладок/запросов бьют в API одновременно без
+ * прогретого кэша, ровно наш случай на странице гонки: race+qualifying+
+ * sprint+practice×3+sprint_quali могут запроситься параллельно). Раньше
+ * здесь ретраев не было вообще — любой 429 сразу улетал наверх, там тихо
+ * ловился catch-блоком в raceDetailService.ts и превращался в "нет
+ * данных" без единого следа в логике приложения. Тот же приём, что уже
+ * год работает в providers/jolpica.ts.
+ */
+async function fetchJson<T>(path: string): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const response = await fetch(`${BASE_URL}${path}`, { headers: { Accept: "application/json" } });
+
+    if (response.ok) {
+      return (await response.json()) as T;
+    }
+
+    const retryable = response.status === 429 || response.status >= 500;
+    if (!retryable || attempt === MAX_RETRIES) {
+      throw new OpenF1ApiError(`OpenF1 API ${response.status} for ${path}`, response.status);
+    }
+
+    const retryAfterHeader = response.headers.get("Retry-After");
+    const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+    const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 300 * 2 ** attempt;
+
+    lastError = new OpenF1ApiError(`OpenF1 API ${response.status} for ${path}`, response.status);
+    await sleep(backoffMs);
+  }
+
+  throw lastError;
 }
 
 export interface RawOpenF1Session {
