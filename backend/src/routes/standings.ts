@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
+import { errorReason } from "../lib/errors";
 import { errorResponse, jsonResponse } from "../lib/http";
 import { mapConstructorStandings, mapDriverStandings } from "../mappers/standings";
 import { getConstructorStandings, getDriverStandings } from "../providers/jolpica";
@@ -68,7 +69,7 @@ async function tryFastStandings(
   if (!weekend) return null;
 
   const standings = await fetcher(env, weekend).catch((err) => {
-    console.error("OpenF1 fast-path standings failed, falling back to Jolpica:", err);
+    console.error(`OpenF1 fast-path standings failed (${errorReason(err)}), falling back to Jolpica`);
     return null;
   });
   return standings ? { season: weekend.season, standings } : null;

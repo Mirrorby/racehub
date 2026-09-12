@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
+import { errorReason } from "../lib/errors";
 import { sendTelegramMessage } from "../lib/telegramBot";
 import { getDriverStandings } from "../providers/jolpica";
 import { mapDriverStandings } from "../mappers/standings";
@@ -91,7 +92,7 @@ async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, result
 
 async function resolveChampionshipLeader(env: Env, weekend: RaceWeekend): Promise<Standing | undefined> {
   const fast = await getFastDriverStandings(env, weekend).catch((err) => {
-    console.error("OpenF1 fast-path standings failed for leader check, falling back to Jolpica:", err);
+    console.error(`OpenF1 fast-path standings failed for leader check (${errorReason(err)}), falling back to Jolpica`);
     return null;
   });
   if (fast) return fast[0];

@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { errorReason } from "../lib/errors";
 import { getUserProfile } from "../lib/userRepository";
 import { requireUserId } from "../lib/requireAuth";
 import { errorResponse, jsonResponse } from "../lib/http";
@@ -19,7 +20,7 @@ export async function handleBootstrap(request: Request, env: Env): Promise<Respo
   } catch (err) {
     // Джолпика недоступна и кэш пуст (напр. первый холодный запуск) —
     // не роняем весь bootstrap/логин из-за этого, просто отдаём без nextRace.
-    console.error("Failed to resolve nextRace, falling back to null:", err);
+    console.error(`Failed to resolve nextRace (${errorReason(err)}), falling back to null`);
   }
 
   const response: BootstrapResponse = { profile, nextRace };

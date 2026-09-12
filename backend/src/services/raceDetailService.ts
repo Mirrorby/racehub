@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
+import { errorReason } from "../lib/errors";
 import { getQualifyingResults, getRaceResults, getSprintResults } from "../providers/jolpica";
 import { mapQualifyingResults, mapRaceResults, mapSprintResults } from "../mappers/raceResults";
 import { getFastRaceResults } from "./liveResultsService";
@@ -20,7 +21,7 @@ async function resolveRaceResults(env: Env, weekend: RaceWeekend): Promise<RaceR
   // Квалификацию через этот путь не гоняем — см. комментарий в
   // liveResultsService.ts.
   const fast = await getFastRaceResults(env, weekend).catch((err) => {
-    console.error(`OpenF1 fast-path failed for race results of ${weekend.id}, falling back to Jolpica:`, err);
+    console.error(`OpenF1 fast-path failed for race results of ${weekend.id} (${errorReason(err)}), falling back to Jolpica`);
     return null;
   });
   if (fast) return fast;
@@ -64,7 +65,7 @@ async function resolvePracticeResults(
   const results: Array<PracticeResultEntry[] | null> = [];
   for (const type of relevant) {
     const result = await getPracticeResults(env, weekend, type).catch((err) => {
-      console.error(`OpenF1 practice results failed for ${weekend.id}/${type}:`, err);
+      console.error(`OpenF1 practice results failed for ${weekend.id}/${type} (${errorReason(err)})`);
       return null;
     });
     results.push(result);
@@ -98,7 +99,7 @@ export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailRes
     resolvePracticeResults(env, weekend),
     sprintQualiSession && sprintQualiSession.status !== "upcoming"
       ? getSprintQualifyingResults(env, weekend).catch((err) => {
-          console.error(`OpenF1 sprint qualifying results failed for ${weekend.id}:`, err);
+          console.error(`OpenF1 sprint qualifying results failed for ${weekend.id} (${errorReason(err)})`);
           return null;
         })
       : Promise.resolve(null),

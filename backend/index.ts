@@ -1,0 +1,73 @@
+import { Router } from "itty-router";
+import type { Env } from "./env";
+import { errorReason } from "./lib/errors";
+import { handleTelegramAuth } from "./routes/auth";
+import { handleBootstrap } from "./routes/bootstrap";
+import { handleCalendar } from "./routes/calendar";
+import { handleRaceDetail } from "./routes/race";
+import { handleStandings } from "./routes/standings";
+import { handleUpdatePreferences } from "./routes/preferences";
+import { handleUpdateNotificationSettings } from "./routes/notifications";
+import { handleDriverCareer, handleConstructorCareer, handleTrackHistory } from "./routes/career";
+import { runSessionReminders } from "./notifications/sessionReminders";
+import { runResultNotifications } from "./notifications/resultNotifications";
+import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
+import { UnauthorizedError } from "./lib/requireAuth";
+
+const router = Router();
+
+router.options("*", () => new Response(null, { status: 204, headers: CORS_HEADERS }));
+
+router.get("/api/health", () => jsonResponse({ status: "ok" }));
+
+router.post("/api/auth/telegram", (request, env: Env) => handleTelegramAuth(request, env));
+
+router.get("/api/bootstrap", (request, env: Env) => handleBootstrap(request, env));
+
+router.get("/api/calendar", (request, env: Env) => handleCalendar(request, env));
+
+router.get("/api/race/:id", (request, env: Env) => handleRaceDetail(request, env, request.params.id));
+
+router.get("/api/standings/:type", (request, env: Env) => handleStandings(request, env, request.params.type));
+
+router.put("/api/preferences", (request, env: Env) => handleUpdatePreferences(request, env));
+
+router.put("/api/notifications/settings", (request, env: Env) => handleUpdateNotificationSettings(request, env));
+
+router.get("/api/drivers/:id/career", (request, env: Env) => handleDriverCareer(request, env, request.params.id));
+
+router.get("/api/constructors/:id/career", (request, env: Env) =>
+  handleConstructorCareer(request, env, request.params.id),
+);
+
+router.get("/api/circuits/:id/history", (request, env: Env) => handleTrackHistory(request, env, request.params.id));
+
+router.all("*", () => errorResponse("Not found", 404));
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await router.fetch(request, env);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return errorResponse(err.message, 401);
+      }
+      console.error(`Unhandled error: ${errorReason(err)}`);
+      return errorResponse("Internal server error", 500);
+    }
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    try {
+      await runSessionReminders(env);
+    } catch (err) {
+      console.error(`runSessionReminders failed: ${errorReason(err)}`);
+    }
+
+    try {
+      await runResultNotifications(env);
+    } catch (err) {
+      console.error(`runResultNotifications failed: ${errorReason(err)}`);
+    }
+  },
+};

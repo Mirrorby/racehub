@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { errorReason } from "./errors";
 /**
  * Простой TTL-кэш поверх таблицы `api_cache` в D1 (см. backend/src/db/schema.sql).
  *
@@ -50,11 +51,18 @@ export async function getOrRefresh<T>(
     return fresh;
   } catch (err) {
     // Апстрим недоступен/перегружен — отдаём протухший кэш, если он есть,
-    // вместо того чтобы ронять весь ответ пользователю.
+    // вместо того чтобы ронять весь ответ пользователю. Раньше лог всегда
+    // писал "Jolpica fetch failed" независимо от реального источника (этот
+    // же кэш используется и для openf1:* ключей) и не печатал текст самой
+    // ошибки (err.message) — в Cloudflare Logs было видно только стек,
+    // без кода ответа/причины. Теперь источник виден из самого ключа,
+    // а сообщение — явным полем в строке лога.
+    const reason = errorReason(err);
     if (row) {
-      console.error(`Jolpica fetch failed for "${key}", serving stale cache:`, err);
+      console.error(`getOrRefresh: upstream fetch failed for "${key}" (${reason}), serving stale cache`);
       return JSON.parse(row.payload) as T;
     }
+    console.error(`getOrRefresh: upstream fetch failed for "${key}" (${reason}), no cache to fall back on`);
     throw err;
   }
 }
