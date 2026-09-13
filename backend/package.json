@@ -10,7 +10,9 @@
     "db:migrate:local": "wrangler d1 execute race_hub_db --local --file=./src/db/schema.sql",
     "db:migrate:remote": "wrangler d1 execute race_hub_db --remote --file=./src/db/schema.sql",
     "db:migrate:podium:local": "wrangler d1 execute race_hub_db --local --file=./src/db/migrations/0002_podium_pulse_preferences.sql",
-    "db:migrate:podium:remote": "wrangler d1 execute race_hub_db --remote --file=./src/db/migrations/0002_podium_pulse_preferences.sql"
+    "db:migrate:podium:remote": "wrangler d1 execute race_hub_db --remote --file=./src/db/migrations/0002_podium_pulse_preferences.sql",
+    "db:migrate:precomputed:local": "wrangler d1 execute race_hub_db --local --file=./src/db/migrations/0003_precomputed_data.sql",
+    "db:migrate:precomputed:remote": "wrangler d1 execute race_hub_db --remote --file=./src/db/migrations/0003_precomputed_data.sql"
   },
   "dependencies": {
     "itty-router": "^5.0.18"

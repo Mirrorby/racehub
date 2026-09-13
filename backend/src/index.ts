@@ -10,8 +10,10 @@ import { handleUpdateNotificationSettings } from "./routes/notifications";
 import { handleDriverCareer, handleConstructorCareer, handleTrackHistory } from "./routes/career";
 import { runSessionReminders } from "./notifications/sessionReminders";
 import { runResultNotifications } from "./notifications/resultNotifications";
+import { runDataSync } from "./cron/dataSync";
 import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
 import { UnauthorizedError } from "./lib/requireAuth";
+import { errorReason } from "./lib/errors";
 
 const router = Router();
 
@@ -56,7 +58,23 @@ export default {
     }
   },
 
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    // "*/15 * * * *" — наполнение D1 (cron/dataSync.ts): календарь,
+    // standings, результаты этапов, карьерная статистика, история трасс,
+    // цвета команд. Отдельный триггер, а не расширение "*/5 * * * *" ниже:
+    // наполнение D1 может занимать заметно больше времени на тик (до
+    // десятка последовательных подзапросов с паузами, см.
+    // syncRoundResults.ts), и не должно откладывать/задерживать
+    // time-sensitive напоминания о сессиях.
+    if (controller.cron === "*/15 * * * *") {
+      try {
+        await runDataSync(env);
+      } catch (err) {
+        console.error(`runDataSync failed: ${errorReason(err)}`);
+      }
+      return;
+    }
+
     try {
       await runSessionReminders(env);
     } catch (err) {
