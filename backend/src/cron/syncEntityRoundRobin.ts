@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { errorReason } from "../lib/errors";
 import { getAppState, setAppState } from "./appState";
+import { findLatestStartedRace } from "./raceWeekend";
 import { getDriverCareerStats, getConstructorCareerStats } from "../services/careerStatsService";
 import { getTrackHistory } from "../services/trackHistoryService";
 import { getLiveTeamColors } from "../services/liveResultsService";
@@ -62,14 +63,6 @@ async function buildEntityQueue(env: Env): Promise<EntityRef[]> {
   queue.push({ kind: "team_colors", id: "*" });
 
   return queue;
-}
-
-function findLatestStartedRace(races: RaceWeekend[], now: Date): RaceWeekend | null {
-  for (let i = races.length - 1; i >= 0; i--) {
-    const raceSession = races[i].sessions.find((s) => s.type === "race");
-    if (raceSession && new Date(raceSession.startUtc) <= now) return races[i];
-  }
-  return null;
 }
 
 /**

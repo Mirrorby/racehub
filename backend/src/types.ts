@@ -185,6 +185,15 @@ export interface ConstructorCareerStats {
   championships: number;
   firstSeason: number | null;
   lastSeason: number | null;
+  // Шасси/мотор/руководитель команды/база — из курируемого датасета
+  // team_details (см. db/migrations/0003_precomputed_data.sql), не из
+  // Jolpica (та эти данные принципиально не отдаёт). Опционально и
+  // может быть null, если для этой команды датасет ещё не заведён —
+  // routes/career.ts подмешивает их поверх посчитанной career-статистики.
+  chassis?: string | null;
+  engine?: string | null;
+  principal?: string | null;
+  base?: string | null;
 }
 
 export interface TrackHistory {
@@ -200,4 +209,8 @@ export interface TrackHistory {
   mostWinsDriver: { name: string; wins: number } | null;
   mostWinsConstructor: { name: string; wins: number } | null;
   lapRecord: { time: string; driver: string; constructor: string; season: number } | null;
+  // Курируемое описание характера трассы (см. таблица track_curated в
+  // db/migrations/0003_precomputed_data.sql) — не из Jolpica. null, если
+  // для этой трассы ещё не заведено вручную.
+  characteristics?: string | null;
 }

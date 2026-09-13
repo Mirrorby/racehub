@@ -1,18 +1,30 @@
 import type { Env } from "../env";
-import { getOrRefresh } from "../lib/cache";
-import { getCurrentSeasonRaces } from "../providers/jolpica";
-import { mapRaceWeekend } from "../mappers/raceWeekend";
+import { recomputeWeekendStatus } from "../mappers/raceWeekend";
 import type { RaceWeekend } from "../types";
 
-// Календарь на сезон вперёд объявлен FIA заранее и меняется редко (разве
-// что форс-мажор с переносом этапа) — 6 часов TTL достаточно, чтобы не
-// упираться в rate limit, и достаточно свежо для таких правок.
-const CALENDAR_TTL_SECONDS = 6 * 60 * 60;
+interface SeasonRaceRow {
+  season: number;
+  weekend_json: string;
+}
 
+/**
+ * Раньше здесь был live-запрос к Jolpica через TTL-кэш api_cache (6ч) —
+ * на "горячем" пути пользователя. Теперь календарь целиком читается из
+ * season_races, которую наполняет cron (см. cron/syncCalendarAndStandings.ts) —
+ * ни одного обращения к апстриму на этом пути больше нет.
+ *
+ * Статусы сессий/уик-энда в сохранённом JSON могут отставать от
+ * реальности на время между тиками cron (до 15 минут) — recomputeWeekendStatus
+ * пересчитывает их от уже сохранённых времён начала сессий, не делая
+ * никаких дополнительных запросов.
+ */
 export async function getSeasonCalendar(env: Env): Promise<{ season: number; races: RaceWeekend[] }> {
-  const { season, races } = await getOrRefresh(env, "calendar:current", CALENDAR_TTL_SECONDS, getCurrentSeasonRaces);
+  const { results } = await env.DB.prepare("SELECT season, weekend_json FROM season_races ORDER BY round ASC").all<SeasonRaceRow>();
+  const rows = results ?? [];
   const now = new Date();
-  return { season, races: races.map((race) => mapRaceWeekend(race, now)) };
+  const races = rows.map((row) => recomputeWeekendStatus(JSON.parse(row.weekend_json) as RaceWeekend, now));
+  const season = rows[0]?.season ?? now.getUTCFullYear();
+  return { season, races };
 }
 
 /** Ближайший ещё не завершённый гоночный уик-энд, либо null в межсезонье. */
@@ -25,8 +37,8 @@ export async function getNextRaceWeekend(env: Env): Promise<RaceWeekend | null> 
 
 /**
  * Ближайшая к "сейчас" гонка, чья сессия race уже стартовала (т.е. могла
- * завершиться) — нужна и для result-based уведомлений, и для live-standings
- * (сведение с OpenF1 требует знать "какая именно гонка только что прошла").
+ * завершиться) — нужна и для result-based уведомлений, и для чтения
+ * результатов последнего прошедшего этапа.
  */
 export async function getMostRecentStartedRace(env: Env, now: Date = new Date()): Promise<RaceWeekend | null> {
   const { races } = await getSeasonCalendar(env);

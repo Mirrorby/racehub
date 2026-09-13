@@ -25,3 +25,12 @@ export function isRaceWeekend(races: RaceWeekend[], now: Date = new Date()): boo
   }
   return false;
 }
+
+/** Последняя по расписанию гонка, чья сессия race уже стартовала — используется для привязки к OpenF1 session_key (live standings/цвета команд). Без сети: работает над уже загруженным из D1 списком races. */
+export function findLatestStartedRace(races: RaceWeekend[], now: Date = new Date()): RaceWeekend | null {
+  for (let i = races.length - 1; i >= 0; i--) {
+    const raceSession = races[i].sessions.find((s) => s.type === "race");
+    if (raceSession && new Date(raceSession.startUtc) <= now) return races[i];
+  }
+  return null;
+}

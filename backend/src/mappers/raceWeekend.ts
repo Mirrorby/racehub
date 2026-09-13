@@ -97,3 +97,19 @@ export function mapRaceWeekend(raw: RawRace, now: Date = new Date()): RaceWeeken
     status: weekendStatus(sessions),
   };
 }
+
+/**
+ * Пересчитывает status каждой сессии и всего уик-энда от уже сохранённых
+ * startUtc — используется на чтении из D1 (см. services/calendarService.ts,
+ * services/raceDetailService.ts), где weekend_json был записан cron'ом до
+ * 15 минут назад и мог "застать" сессию, например, ещё upcoming, хотя она
+ * уже стартовала. Не требует ни одного запроса к апстриму — вся нужная
+ * информация (времена начала сессий) уже лежит в самом объекте.
+ */
+export function recomputeWeekendStatus(weekend: RaceWeekend, now: Date = new Date()): RaceWeekend {
+  const sessions = weekend.sessions.map((session) => ({
+    ...session,
+    status: sessionStatus(session.startUtc, session.type, now),
+  }));
+  return { ...weekend, sessions, status: weekendStatus(sessions) };
+}

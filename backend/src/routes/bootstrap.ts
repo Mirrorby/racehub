@@ -18,8 +18,10 @@ export async function handleBootstrap(request: Request, env: Env): Promise<Respo
   try {
     nextRace = await getNextRaceWeekend(env);
   } catch (err) {
-    // Джолпика недоступна и кэш пуст (напр. первый холодный запуск) —
-    // не роняем весь bootstrap/логин из-за этого, просто отдаём без nextRace.
+    // getNextRaceWeekend теперь читает только D1 (см. calendarService.ts) —
+    // единственная причина упасть здесь это сбой самой D1 или ещё не
+    // распарсенный weekend_json. Не роняем весь bootstrap/логин из-за
+    // этого, просто отдаём без nextRace.
     console.error(`Failed to resolve nextRace (${errorReason(err)}), falling back to null`);
   }
 
