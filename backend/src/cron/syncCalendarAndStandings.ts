@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { errorReason } from "../lib/errors";
+import { sleep, UPSTREAM_PACE_MS } from "../lib/pace";
 import { getCurrentSeasonRaces, getDriverStandings, getConstructorStandings } from "../providers/jolpica";
 import { mapRaceWeekend } from "../mappers/raceWeekend";
 import { mapDriverStandings, mapConstructorStandings } from "../mappers/standings";
@@ -84,6 +85,12 @@ export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudge
   }
 
   try {
+    // Пауза перед первым запросом этой фазы — на случай, если сразу перед
+    // ней успел выполниться запрос календаря выше (та же причина, из-за
+    // которой без этой паузы в проде ловили 429 на constructorStandings:
+    // календарь + standings улетали практически одним залпом).
+    await sleep(UPSTREAM_PACE_MS);
+
     const races = await loadRacesFromDb(env);
     const latestRace = findLatestStartedRace(races, now);
     const liveColors = await loadTeamColors(env);
@@ -97,6 +104,7 @@ export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudge
         console.error(`syncCalendarAndStandings: OpenF1 fast driver standings failed (${errorReason(err)}), will fall back to Jolpica`);
         return null;
       });
+      await sleep(UPSTREAM_PACE_MS);
       constructorStandings = await getFastConstructorStandings(env, latestRace).catch((err) => {
         console.error(
           `syncCalendarAndStandings: OpenF1 fast constructor standings failed (${errorReason(err)}), will fall back to Jolpica`,
@@ -106,11 +114,13 @@ export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudge
     }
 
     if (!driverStandings) {
+      if (latestRace) await sleep(UPSTREAM_PACE_MS); // fast-path уже что-то успел запросить выше
       const raw = await getDriverStandings();
       season = raw.season;
       driverStandings = mapDriverStandings(raw.standings, liveColors);
     }
     if (!constructorStandings) {
+      await sleep(UPSTREAM_PACE_MS);
       const raw = await getConstructorStandings();
       season = raw.season;
       constructorStandings = mapConstructorStandings(raw.standings, liveColors);

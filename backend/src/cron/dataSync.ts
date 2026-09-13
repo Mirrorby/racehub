@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { errorReason } from "../lib/errors";
+import { sleep, UPSTREAM_PACE_MS } from "../lib/pace";
 import { isStale, markSynced } from "./appState";
 import { isRaceWeekend } from "./raceWeekend";
 import { SubrequestBudget } from "./subrequestBudget";
@@ -56,11 +57,15 @@ export async function runDataSync(env: Env): Promise<void> {
     console.log(`runDataSync: hot data fresh enough (raceWeekend=${weekendNow}), skipping calendar/standings/active-round refresh`);
   }
 
+  await sleep(UPSTREAM_PACE_MS); // граница фаз — не даём последнему запросу active-rounds улететь впритык к первому запросу backfill'а
+
   try {
     await backfillOlderRounds(env, budget);
   } catch (err) {
     console.error(`runDataSync: backfillOlderRounds failed (${errorReason(err)})`);
   }
+
+  await sleep(UPSTREAM_PACE_MS); // та же граница перед round-robin карьеры/истории трасс
 
   try {
     await syncNextEntity(env, races, budget);

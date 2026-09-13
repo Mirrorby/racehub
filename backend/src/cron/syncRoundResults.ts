@@ -1,21 +1,12 @@
 import type { Env } from "../env";
 import { errorReason } from "../lib/errors";
+import { sleep, UPSTREAM_PACE_MS } from "../lib/pace";
 import type { PracticeResultEntry, QualifyingResultEntry, RaceResultEntry, RaceWeekend } from "../types";
 import { getQualifyingResults, getRaceResults, getSprintResults } from "../providers/jolpica";
 import { mapQualifyingResults, mapRaceResults, mapSprintResults } from "../mappers/raceResults";
 import { getFastRaceResults } from "../services/liveResultsService";
 import { getPracticeResults, getSprintQualifyingResults } from "../services/practiceResultsService";
 import type { SubrequestBudget } from "./subrequestBudget";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Пауза между последовательными подзапросами внутри одного раунда — с
-// запасом ниже burst-лимита Jolpica (4/сек = 250мс/запрос), и вежливо по
-// отношению к OpenF1, у которого официальных лимитов нет, но который
-// регулярно отдаёт 429 на холодных всплесках (см. providers/openf1.ts).
-const PACE_MS = 350;
 
 const PRACTICE_TYPES = ["fp1", "fp2", "fp3"] as const;
 
@@ -69,7 +60,7 @@ export async function syncRoundResults(env: Env, weekend: RaceWeekend, budget: S
       console.error(`syncRoundResults: OpenF1 fast race results failed for ${weekend.id} (${errorReason(err)})`);
     }
     if (!raceResults) {
-      await sleep(PACE_MS);
+      await sleep(UPSTREAM_PACE_MS);
       try {
         const raw = await getRaceResults(weekend.round);
         raceResults = raw.length > 0 ? mapRaceResults(raw) : null;
@@ -81,7 +72,7 @@ export async function syncRoundResults(env: Env, weekend: RaceWeekend, budget: S
 
   let qualifyingResults: QualifyingResultEntry[] | null = null;
   if (qualifyingSession && qualifyingSession.status !== "upcoming") {
-    await sleep(PACE_MS);
+    await sleep(UPSTREAM_PACE_MS);
     try {
       const raw = await getQualifyingResults(weekend.round);
       qualifyingResults = raw.length > 0 ? mapQualifyingResults(raw) : null;
@@ -92,7 +83,7 @@ export async function syncRoundResults(env: Env, weekend: RaceWeekend, budget: S
 
   let sprintResults: RaceResultEntry[] | null = null;
   if (sprintSession && sprintSession.status !== "upcoming") {
-    await sleep(PACE_MS);
+    await sleep(UPSTREAM_PACE_MS);
     try {
       const raw = await getSprintResults(weekend.round);
       sprintResults = raw.length > 0 ? mapSprintResults(raw) : null;
@@ -103,7 +94,7 @@ export async function syncRoundResults(env: Env, weekend: RaceWeekend, budget: S
 
   const practiceResults: Partial<Record<"fp1" | "fp2" | "fp3", PracticeResultEntry[] | null>> = {};
   for (const type of practiceSessions) {
-    await sleep(PACE_MS);
+    await sleep(UPSTREAM_PACE_MS);
     try {
       practiceResults[type] = await getPracticeResults(env, weekend, type);
     } catch (err) {
@@ -114,7 +105,7 @@ export async function syncRoundResults(env: Env, weekend: RaceWeekend, budget: S
 
   let sprintQualifyingResults: QualifyingResultEntry[] | null = null;
   if (sprintQualiSession && sprintQualiSession.status !== "upcoming") {
-    await sleep(PACE_MS);
+    await sleep(UPSTREAM_PACE_MS);
     try {
       sprintQualifyingResults = await getSprintQualifyingResults(env, weekend);
     } catch (err) {

@@ -2,6 +2,7 @@
 
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
+import { sleep } from "../lib/pace";
 import * as jolpica from "../providers/jolpica";
 import type { DriverCareerStats, ConstructorCareerStats } from "../types";
 
@@ -16,6 +17,26 @@ const CAREER_TTL_SECONDS = 12 * 60 * 60;
 // запасом на будущее.
 const MAX_SEASONS_FOR_TITLES = 25;
 
+/**
+ * Раньше здесь был Promise.all по ВСЕМ сезонам разом — до 25 параллельных
+ * запросов к Jolpica одним залпом на подсчёт титулов одного пилота с
+ * длинной карьерой. Это было незаметно, пока функция вызывалась только с
+ * "горячего" пути (там TTL-кэш почти всегда спасал от повторного
+ * попадания сюда) — но с переездом на cron round-robin (см.
+ * cron/syncEntityRoundRobin.ts) она стала регулярно вызываться заново на
+ * каждого пилота/команду при истечении TTL, и 25 параллельных запросов —
+ * прямой путь к 429 (burst-лимит Jolpica 4/сек). Считаем последовательно.
+ */
+async function countChampionships(seasons: number[], getPosition: (season: number) => Promise<number | null>): Promise<number> {
+  let championships = 0;
+  for (const season of seasons) {
+    const position = await getPosition(season);
+    if (position === 1) championships += 1;
+    await sleep();
+  }
+  return championships;
+}
+
 export async function getDriverCareerStats(env: Env, driverId: string): Promise<DriverCareerStats | null> {
   return getOrRefresh(env, `career:driver:${driverId}`, CAREER_TTL_SECONDS, async () => {
     const driverInfo = await jolpica.getDriverInfo(driverId);
@@ -28,10 +49,7 @@ export async function getDriverCareerStats(env: Env, driverId: string): Promise<
     ]);
 
     const seasonsToCheck = seasons.slice(0, MAX_SEASONS_FOR_TITLES);
-    const positions = await Promise.all(
-      seasonsToCheck.map((season) => jolpica.getDriverSeasonPosition(season, driverId)),
-    );
-    const championships = positions.filter((p) => p === 1).length;
+    const championships = await countChampionships(seasonsToCheck, (season) => jolpica.getDriverSeasonPosition(season, driverId));
 
     return {
       wins: summary.wins,
@@ -57,10 +75,9 @@ export async function getConstructorCareerStats(env: Env, constructorId: string)
     if (summary.firstSeason === null) return null;
 
     const seasonsToCheck = seasons.slice(0, MAX_SEASONS_FOR_TITLES);
-    const positions = await Promise.all(
-      seasonsToCheck.map((season) => jolpica.getConstructorSeasonPosition(season, constructorId)),
+    const championships = await countChampionships(seasonsToCheck, (season) =>
+      jolpica.getConstructorSeasonPosition(season, constructorId),
     );
-    const championships = positions.filter((p) => p === 1).length;
 
     return {
       wins: summary.wins,
