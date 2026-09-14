@@ -3,8 +3,12 @@
  * ливрей (не с логотипов — большинство логотипов монохромны и не годятся
  * для автоматического извлечения "фирменного" цвета, см. аудит редизайна).
  *
- * constructorId соответствует значениям Jolpica/Ergast API, проверено вручную
- * через https://api.jolpi.ca/ergast/f1/2026/constructors (08.09.2026).
+ * constructorId ниже — "racing_bulls"/"red_bull_racing", а не "rb"/
+ * "red_bull", как считалось раньше (см. одноимённый файл на бэкенде,
+ * backend/src/mappers/teamColors.ts, — там подробное объяснение: реальный
+ * /driverstandings и /constructorstandings в 2026 сезоне отдают именно
+ * такие constructorId, расхождение обнаружено 13.09.2026 через прямой
+ * запрос к прод-базе, а не по документации).
  *
  *Cadillac — ливрея чёрно-графитовая без выраженного насыщенного акцента,
  * поэтому цвет подобран вручную (графитовый), а не извлечён автоматически.
@@ -18,8 +22,8 @@ const TEAM_COLORS: Record<string, string> = {
   haas: "#CF1E21",
   mclaren: "#E27F31",
   mercedes: "#2D9790",
-  rb: "#153E95",
-  red_bull: "#1C2C7B",
+  racing_bulls: "#153E95",
+  red_bull_racing: "#1C2C7B",
   williams: "#1835D7",
 };
 
