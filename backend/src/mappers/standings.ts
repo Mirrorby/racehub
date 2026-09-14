@@ -11,13 +11,19 @@ import { constructorColor } from "./teamColors";
 // liveResultsService.ts::getLiveTeamColors), основной источник цвета.
 // Статичная таблица teamColors.ts используется только как fallback —
 // когда OpenF1 недоступен или ещё не знает про совсем новую команду.
-export function mapDriverStandings(raw: RawDriverStanding[], liveColors?: Map<string, string>): Standing[] {
+//
+// driverMedia — driverId -> headshot_url из OpenF1 (см.
+// liveResultsService.ts::getLiveDriverMedia). В отличие от цвета, у фото
+// НЕТ статичного fallback — Jolpica медиа не отдаёт вообще, поэтому
+// значение просто null, пока OpenF1 не заведёт снимок для этого пилота.
+export function mapDriverStandings(raw: RawDriverStanding[], liveColors?: Map<string, string>, driverMedia?: Map<string, string>): Standing[] {
   const leaderPoints = raw.length > 0 ? Number(raw[0].points) : 0;
   return raw.map((entry) => {
     const constructor = entry.Constructors[entry.Constructors.length - 1];
     const points = Number(entry.points);
     const constructorId = constructor?.constructorId ?? "";
     const color = liveColors?.get(constructorId) ?? constructorColor(constructorId);
+    const driverId = entry.Driver.driverId;
     return {
       position: Number(entry.position),
       points,
@@ -25,13 +31,14 @@ export function mapDriverStandings(raw: RawDriverStanding[], liveColors?: Map<st
       gapToLeader: points === leaderPoints ? 0 : leaderPoints - points,
       movement: "unknown",
       driver: {
-        id: entry.Driver.driverId,
-        code: entry.Driver.code ?? entry.Driver.driverId.slice(0, 3).toUpperCase(),
+        id: driverId,
+        code: entry.Driver.code ?? driverId.slice(0, 3).toUpperCase(),
         number: entry.Driver.permanentNumber ? Number(entry.Driver.permanentNumber) : null,
         fullName: `${entry.Driver.givenName} ${entry.Driver.familyName}`,
         constructorId,
         constructorName: constructor?.name ?? "",
         teamColor: color,
+        headshotUrl: driverMedia?.get(driverId) ?? null,
       },
       constructor: constructor ? { id: constructorId, name: constructor.name, color, nationality: constructor.nationality } : undefined,
     };

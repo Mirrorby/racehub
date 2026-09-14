@@ -87,6 +87,11 @@ export interface Driver {
   constructorId: string;
   constructorName: string;
   teamColor: string;
+  // Официальное фото (OpenF1 headshot_url) — см. driver_media в
+  // db/migrations/0004_driver_media.sql. Jolpica медиа не отдаёт вообще,
+  // это единственный источник фото через API. null, если OpenF1 ещё не
+  // завёл фото для этого пилота (например, только что дебютировавший).
+  headshotUrl: string | null;
 }
 
 export interface Constructor {
@@ -102,7 +107,8 @@ export interface Standing {
   wins: number;
   gapToLeader: number | null;
   movement: "up" | "down" | "same" | "unknown";
-  driver?: Pick<Driver, "id" | "fullName" | "code"> & Partial<Pick<Driver, "number" | "constructorId" | "constructorName" | "teamColor">>;
+  driver?: Pick<Driver, "id" | "fullName" | "code"> &
+    Partial<Pick<Driver, "number" | "constructorId" | "constructorName" | "teamColor" | "headshotUrl">>;
   constructor?: Pick<Constructor, "id" | "name"> & Partial<Pick<Constructor, "color" | "nationality">>;
 }
 
@@ -176,6 +182,10 @@ export interface DriverCareerStats {
   lastSeason: number | null;
   dateOfBirth: string | null;
   nationality: string;
+  // Из driver_media (см. db/migrations/0004_driver_media.sql) — не
+  // считается careerStatsService, подмешивается routes/career.ts поверх.
+  // Опционально и может быть null, если OpenF1 ещё не завёл фото.
+  headshotUrl?: string | null;
 }
 
 export interface ConstructorCareerStats {

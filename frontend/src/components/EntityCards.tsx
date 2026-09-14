@@ -9,7 +9,7 @@ export function DriverMiniCard({ standing, onOpen }: { standing: Standing; onOpe
   return <GlassCard className="pp-driver-card" onClick={onOpen} role="button" tabIndex={0}>
     <img className="pp-driver-card__number-graphic" src={assetFor.number(d.id)} onError={(e) => { e.currentTarget.style.display = "none"; }} alt="" />
     <div className="pp-driver-card__number">{d.number ?? d.code}</div>
-    <img className="pp-driver-card__portrait" src={assetFor.driver(d.id)} onError={(e) => imageFallback(e, placeholders.driverPlaceholder)} alt="" />
+    <img className="pp-driver-card__portrait" src={assetFor.driver(d.id, d.headshotUrl)} onError={(e) => imageFallback(e, placeholders.driverPlaceholder)} alt="" />
     <div className="pp-driver-card__name">{d.fullName}</div>
     <div className="pp-driver-stats"><div><b>P{standing.position}</b><span>{t("position")}</span></div><div><b>{standing.wins}</b><span>{t("wins")}</span></div><div><b>{standing.points}</b><span>{t("points")}</span></div></div>
   </GlassCard>;

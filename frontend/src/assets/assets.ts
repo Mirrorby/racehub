@@ -24,7 +24,11 @@ function teamAssetSlug(id: string): string {
 }
 
 export const assetFor = {
-  driver: (id?: string) => (id ? `/assets/drivers/${id}.webp` : driverPlaceholder),
+  // liveUrl — headshotUrl из ответа API (OpenF1, см. driver_media на
+  // бэкенде), когда он есть — приоритетнее локального бандла: он реальный
+  // и автоматически покрывает midseason-замены в составе (не нужно
+  // вручную довозить .webp на каждую замену пилота, как раньше с Цунодой).
+  driver: (id?: string, liveUrl?: string | null) => liveUrl ?? (id ? `/assets/drivers/${id}.webp` : driverPlaceholder),
   // логотипы команд — растровые webp (реальные лого без прозрачного SVG-источника
   // от команд не поставляются), не .svg, как было в исходном плейсхолдере
   team: (id?: string) => (id ? `/assets/teams/${teamAssetSlug(id)}.webp` : teamPlaceholder),

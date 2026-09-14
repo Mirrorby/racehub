@@ -14,6 +14,11 @@ interface TeamColorRow {
   color: string;
 }
 
+interface DriverMediaRow {
+  driver_id: string;
+  headshot_url: string | null;
+}
+
 interface WeekendRow {
   weekend_json: string;
 }
@@ -26,6 +31,11 @@ async function loadRacesFromDb(env: Env): Promise<RaceWeekend[]> {
 async function loadTeamColors(env: Env): Promise<Map<string, string>> {
   const { results } = await env.DB.prepare("SELECT constructor_id, color FROM team_colors").all<TeamColorRow>();
   return new Map((results ?? []).map((row) => [row.constructor_id, row.color]));
+}
+
+async function loadDriverMedia(env: Env): Promise<Map<string, string>> {
+  const { results } = await env.DB.prepare("SELECT driver_id, headshot_url FROM driver_media WHERE headshot_url IS NOT NULL").all<DriverMediaRow>();
+  return new Map((results ?? []).map((row) => [row.driver_id, row.headshot_url as string]));
 }
 
 async function writeStandings(env: Env, type: "drivers" | "constructors", season: number, standings: Standing[]): Promise<void> {
@@ -94,6 +104,7 @@ export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudge
     const races = await loadRacesFromDb(env);
     const latestRace = findLatestStartedRace(races, now);
     const liveColors = await loadTeamColors(env);
+    const driverMedia = await loadDriverMedia(env);
 
     let driverStandings: Standing[] | null = null;
     let constructorStandings: Standing[] | null = null;
@@ -117,7 +128,7 @@ export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudge
       if (latestRace) await sleep(UPSTREAM_PACE_MS); // fast-path уже что-то успел запросить выше
       const raw = await getDriverStandings();
       season = raw.season;
-      driverStandings = mapDriverStandings(raw.standings, liveColors);
+      driverStandings = mapDriverStandings(raw.standings, liveColors, driverMedia);
     }
     if (!constructorStandings) {
       await sleep(UPSTREAM_PACE_MS);

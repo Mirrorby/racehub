@@ -38,10 +38,23 @@ interface TrackCuratedRow {
   characteristics: string | null;
 }
 
+interface DriverMediaRow {
+  headshot_url: string | null;
+}
+
 export async function handleDriverCareer(_request: Request, env: Env, driverId: string): Promise<Response> {
   const stats = await readPrecomputed<DriverCareerStats>(env, "driver_career", driverId);
   if (!stats) return errorResponse("Driver not found", 404);
-  return jsonResponse(stats);
+
+  // driver_media — отдельная auto-таблица (см. db/migrations/0004), не
+  // считается careerStatsService, поэтому подмешивается здесь же, как и
+  // team_details у конструктора ниже. Отсутствие строки — норма (фото ещё
+  // не подтянулось циклом round-robin, см. cron/syncEntityRoundRobin.ts),
+  // а не ошибка.
+  const media = await env.DB.prepare("SELECT headshot_url FROM driver_media WHERE driver_id = ?").bind(driverId).first<DriverMediaRow>();
+
+  const body: DriverCareerStats = { ...stats, headshotUrl: media?.headshot_url ?? null };
+  return jsonResponse(body);
 }
 
 export async function handleConstructorCareer(_request: Request, env: Env, constructorId: string): Promise<Response> {

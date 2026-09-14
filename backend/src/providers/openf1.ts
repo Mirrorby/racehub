@@ -89,6 +89,11 @@ export interface RawOpenF1Driver {
   // межсезоньям — предпочтительнее статичной таблицы в mappers/teamColors.ts,
   // которую используем только как fallback, если OpenF1 недоступен.
   team_colour: string;
+  // Прямая ссылка на официальное фото пилота (CDN Formula1.com). OpenF1
+  // отдаёт null, если фото для конкретного пилота ещё не заведено (обычно
+  // касается совсем новых замен в составе в первые дни) — не error, просто
+  // отсутствие данных, обрабатывать как временный пробел, не как сбой.
+  headshot_url: string | null;
 }
 
 export interface RawOpenF1SessionResult {

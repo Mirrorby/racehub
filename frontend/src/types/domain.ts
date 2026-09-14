@@ -13,6 +13,10 @@ export interface Driver {
   constructorId: string;
   constructorName: string;
   teamColor: string;
+  // Официальное фото (OpenF1 headshot_url). null, если OpenF1 ещё не
+  // завёл фото для этого пилота — assetFor.driver() в этом случае сам
+  // падает на локальный бандл /assets/drivers/{id}.webp.
+  headshotUrl: string | null;
 }
 
 export interface Constructor {
@@ -56,7 +60,8 @@ export interface Standing {
   wins: number;
   gapToLeader: number | null;
   movement: "up" | "down" | "same" | "unknown";
-  driver?: Pick<Driver, "id" | "fullName" | "code"> & Partial<Pick<Driver, "number" | "constructorId" | "constructorName" | "teamColor">>;
+  driver?: Pick<Driver, "id" | "fullName" | "code"> &
+    Partial<Pick<Driver, "number" | "constructorId" | "constructorName" | "teamColor" | "headshotUrl">>;
   constructor?: Pick<Constructor, "id" | "name"> & Partial<Pick<Constructor, "color" | "nationality">>;
 }
 
@@ -109,6 +114,7 @@ export interface DriverCareerStats {
   lastSeason: number | null;
   dateOfBirth: string | null;
   nationality: string;
+  headshotUrl?: string | null;
 }
 
 export interface ConstructorCareerStats {
@@ -118,6 +124,13 @@ export interface ConstructorCareerStats {
   championships: number;
   firstSeason: number | null;
   lastSeason: number | null;
+  // Курируемый датасет (db/migrations/0003_precomputed_data.sql на
+  // бэкенде) — Jolpica этих полей не отдаёт. Опционально/null, если для
+  // команды ещё не заведено.
+  chassis?: string | null;
+  engine?: string | null;
+  principal?: string | null;
+  base?: string | null;
 }
 
 export interface TrackHistory {
@@ -128,6 +141,9 @@ export interface TrackHistory {
   mostWinsDriver: { name: string; wins: number } | null;
   mostWinsConstructor: { name: string; wins: number } | null;
   lapRecord: { time: string; driver: string; constructor: string; season: number } | null;
+  // Курируемое описание характера трассы (db/migrations/0003) — не из
+  // Jolpica. null, если для трассы ещё не заведено вручную.
+  characteristics?: string | null;
 }
 
 export type ThemeMode = "telegram" | "light" | "dark";

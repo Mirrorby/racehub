@@ -4,7 +4,7 @@ import { getAppState, setAppState } from "./appState";
 import { findLatestStartedRace } from "./raceWeekend";
 import { getDriverCareerStats, getConstructorCareerStats } from "../services/careerStatsService";
 import { getTrackHistory } from "../services/trackHistoryService";
-import { getLiveTeamColors } from "../services/liveResultsService";
+import { getLiveTeamColors, getLiveDriverMedia } from "../services/liveResultsService";
 import type { RaceWeekend, Standing } from "../types";
 import type { SubrequestBudget } from "./subrequestBudget";
 
@@ -17,7 +17,7 @@ const CURSOR_KEY = "entity_sync_cursor";
 const MIN_BUDGET_FOR_ENTITY = 40;
 
 interface EntityRef {
-  kind: "driver" | "constructor" | "circuit" | "team_colors";
+  kind: "driver" | "constructor" | "circuit" | "team_colors" | "driver_media";
   id: string;
 }
 
@@ -61,6 +61,9 @@ async function buildEntityQueue(env: Env): Promise<EntityRef[]> {
   // getLiveTeamColors одним проходом возвращает карту сразу по всем
   // constructorId с последней прошедшей сессии сезона.
   queue.push({ kind: "team_colors", id: "*" });
+  // Фото пилотов — та же логика, один проход getLiveDriverMedia отдаёт
+  // сразу всех пилотов сессии.
+  queue.push({ kind: "driver_media", id: "*" });
 
   return queue;
 }
@@ -124,7 +127,7 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
           .bind(entity.id, JSON.stringify(history), nowIso)
           .run();
       }
-    } else {
+    } else if (entity.kind === "team_colors") {
       const latestRace = findLatestStartedRace(races, new Date());
       const colors = await getLiveTeamColors(env, latestRace);
       for (const [constructorId, color] of colors.entries()) {
@@ -133,6 +136,17 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
            ON CONFLICT(constructor_id) DO UPDATE SET color = excluded.color, updated_at = excluded.updated_at`,
         )
           .bind(constructorId, color, nowIso)
+          .run();
+      }
+    } else {
+      const latestRace = findLatestStartedRace(races, new Date());
+      const media = await getLiveDriverMedia(env, latestRace);
+      for (const [driverId, headshotUrl] of media.entries()) {
+        await env.DB.prepare(
+          `INSERT INTO driver_media (driver_id, headshot_url, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(driver_id) DO UPDATE SET headshot_url = excluded.headshot_url, updated_at = excluded.updated_at`,
+        )
+          .bind(driverId, headshotUrl, nowIso)
           .run();
       }
     }

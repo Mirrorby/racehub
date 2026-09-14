@@ -272,6 +272,7 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
             constructorId: constructorMeta.id,
             constructorName: constructorMeta.name,
             teamColor: color,
+            headshotUrl: driverMeta.headshot_url ?? null,
           },
           constructor: { id: constructorMeta.id, name: constructorMeta.name, color },
         };
@@ -360,6 +361,36 @@ export async function getLiveTeamColors(env: Env, latestRace: RaceWeekend | null
       if (constructor && !(constructor.id in record)) {
         record[constructor.id] = `#${d.team_colour}`;
       }
+    }
+    return record;
+  });
+
+  return new Map(Object.entries(plain));
+}
+
+// Фото пилотов не меняются практически никогда (разве что смена состава
+// команды в межсезонье/midseason) — TTL с большим запасом.
+const HEADSHOT_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * driverId -> headshot_url (официальное фото с формы Formula1.com,
+ * OpenF1 отдаёт прямую ссылку на CDN — см. providers/openf1.ts). Jolpica
+ * медиа не отдаёт вообще, это единственный источник фото через API.
+ * Тот же паттерн, что getLiveTeamColors: сессия по последней стартовавшей
+ * гонке + сопоставление по 3-буквенному коду (name_acronym == Driver.code).
+ */
+export async function getLiveDriverMedia(env: Env, latestRace: RaceWeekend | null): Promise<Map<string, string>> {
+  if (!latestRace) return new Map();
+  const session = await findSessionCached(env, latestRace, "race");
+  if (!session) return new Map();
+
+  const plain = await getOrRefresh(env, `openf1:driver-media:${latestRace.id}`, HEADSHOT_TTL_SECONDS, async () => {
+    const [drivers, driverCodeIndex] = await Promise.all([openf1.getSessionDrivers(session.session_key), buildDriverCodeIndex(env)]);
+    const record: Record<string, string> = {};
+    for (const d of drivers) {
+      if (!d.headshot_url) continue; // OpenF1 честно отдаёт null, если фото нет — не выдумываем
+      const driver = driverCodeIndex.get(d.name_acronym);
+      if (driver) record[driver.id] = d.headshot_url;
     }
     return record;
   });
