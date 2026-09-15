@@ -1,7 +1,14 @@
 import type { Env } from "../env";
 import { getOrRefresh } from "../lib/cache";
 import * as openf1 from "../providers/openf1";
-import { findSessionCached, buildDriverCodeIndex, buildConstructorNameIndex, normalizeTeamName } from "./liveResultsService";
+import {
+  findSessionCached,
+  buildDriverCodeIndex,
+  buildConstructorNameIndex,
+  normalizeTeamName,
+  positionText,
+  sortablePosition,
+} from "./liveResultsService";
 import type { PracticeResultEntry, QualifyingResultEntry, RaceWeekend } from "../types";
 
 const TIMING_TTL_SECONDS = 5 * 60;
@@ -162,22 +169,31 @@ export async function getSprintQualifyingResults(env: Env, weekend: RaceWeekend)
     ]);
     const entries: QualifyingResultEntry[] = [];
 
-    for (const row of results) {
-      const driverMeta = driversByNumber.get(row.driver_number);
-      if (!driverMeta) continue;
+    // Сортируем ДО сборки записей — раньше `position: row.position ?? 0`
+    // не только терял DSQ/DNS в тексте (не было positionText), но и
+    // буквально ставил дисквалифицированного гонщика ПЕРВЫМ в списке
+    // (0 < 1), поверх настоящего P1. Обнаружено и исправлено 16.09.2026.
+    const sortedResults = results
+      .filter((row) => driversByNumber.has(row.driver_number))
+      .sort((a, b) => sortablePosition(a) - sortablePosition(b));
+
+    sortedResults.forEach((row, index) => {
+      const driverMeta = driversByNumber.get(row.driver_number)!;
       const { driver, constructor } = resolveDriverAndConstructorSync(driverMeta, driverCodeIndex, constructorNameIndex);
       const stages = Array.isArray(row.duration) ? row.duration : row.duration != null ? [row.duration] : [];
       entries.push({
-        position: row.position ?? 0,
+        // Настоящий OpenF1 position, когда есть; иначе — последовательный
+        // номер по итоговому порядку (та же семантика, что у гонки).
+        position: row.position ?? index + 1,
+        positionText: positionText(row),
         driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName },
         constructor,
         q1: stages[0] != null ? formatLapTime(stages[0]) : null,
         q2: stages[1] != null ? formatLapTime(stages[1]) : null,
         q3: stages[2] != null ? formatLapTime(stages[2]) : null,
       });
-    }
+    });
 
-    entries.sort((a, b) => a.position - b.position);
     return entries.length > 0 ? entries : null;
   });
 }

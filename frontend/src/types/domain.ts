@@ -78,6 +78,7 @@ export interface RaceResultEntry {
 
 export interface QualifyingResultEntry {
   position: number;
+  positionText: string;
   driver: Pick<Driver, "id" | "fullName" | "code">;
   constructor: Pick<Constructor, "id" | "name">;
   q1: string | null;

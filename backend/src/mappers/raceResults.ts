@@ -26,6 +26,10 @@ export const mapSprintResults = mapRaceResults;
 export function mapQualifyingResults(raw: RawQualifyingResult[]): QualifyingResultEntry[] {
   return raw.map((entry) => ({
     position: Number(entry.position),
+    // Ergast/Jolpica всегда даёт валидный численный position (в отличие
+    // от OpenF1) — здесь это просто его же текстовое представление, для
+    // единообразия контракта с sprint-квалификацией (см. types.ts).
+    positionText: String(entry.position),
     driver: {
       id: entry.Driver.driverId,
       code: entry.Driver.code ?? entry.Driver.driverId.slice(0, 3).toUpperCase(),

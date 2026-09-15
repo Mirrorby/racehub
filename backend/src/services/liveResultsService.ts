@@ -116,29 +116,35 @@ export async function buildConstructorWinsIndex(env: Env): Promise<Map<string, n
   return index;
 }
 
-function resultStatus(row: openf1.RawOpenF1SessionResult): string {
+export function resultStatus(row: openf1.RawOpenF1SessionResult): string {
   if (row.dsq) return "Disqualified";
   if (row.dns) return "Did not start";
   if (row.dnf) return "Retired";
   return "Finished";
 }
 
-function positionText(row: openf1.RawOpenF1SessionResult): string {
+export function positionText(row: openf1.RawOpenF1SessionResult): string {
   if (row.dsq) return "D";
   if (row.dns) return "W";
   if (row.dnf) return "R";
   return row.position != null ? String(row.position) : "—";
 }
 
-// DSQ/DNS у OpenF1 приходят с position: null (см. тесты в docs.rs/crate/openf1
-// — я изначально не учёл это в типе RawOpenF1SessionResult, поэтому текущий
-// прод, скорее всего, писал `NaN` в отсортированный список при дисквалификации
-// — сортировка `.sort((a,b) => a.position - b.position)` с NaN даёт
-// непредсказуемый порядок, но не падает. Не баг именно этого PR, но раз уж
-// делаю тип точным — заодно чиню и сортировку: диски/неявки уходят в конец.
+// Сортировочный ключ ТОЛЬКО для упорядочивания списка — раньше это же
+// значение (9999-sentinel для DSQ/DNS) писалось прямо в поле `position`
+// отдаваемой сущности, то есть утекало наружу в API как якобы реальная
+// позиция гонщика. Теперь sortablePosition используется исключительно
+// для .sort() ДО сборки итоговых записей — см. getFastRaceResults и
+// practiceResultsService.ts::getSprintQualifyingResults, где `position`
+// в самой записи теперь либо настоящий OpenF1 position, либо
+// последовательный номер по итоговому порядку (та же семантика, что у
+// Ergast/Jolpica, см. mappers/raceResults.ts). Обнаружено и исправлено
+// 16.09.2026 при аудите — до этого сентинел 9999 был виден в ответе API
+// для любого потребителя, который не подстраховался и использовал
+// `position` вместо `positionText`.
 const UNRANKED_SORT_POSITION = 9999;
 
-function sortablePosition(row: openf1.RawOpenF1SessionResult): number {
+export function sortablePosition(row: openf1.RawOpenF1SessionResult): number {
   return row.position ?? UNRANKED_SORT_POSITION;
 }
 
@@ -174,7 +180,8 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
 
     const entries: RaceResultEntry[] = results
       .filter((row) => driversByNumber.has(row.driver_number))
-      .map((row) => {
+      .sort((a, b) => sortablePosition(a) - sortablePosition(b))
+      .map((row, index) => {
         const driverMeta = driversByNumber.get(row.driver_number)!;
         // Сведение по 3-буквенному коду — он общий для OpenF1 и Ergast/
         // Jolpica (присваивается FIA один раз на карьеру пилота). Если
@@ -191,7 +198,11 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
         };
 
         return {
-          position: sortablePosition(row),
+          // Настоящий OpenF1 position, когда есть; для DSQ/DNS (position
+          // null) — последовательный номер по итоговому порядку, та же
+          // семантика, что у Ergast/Jolpica (см. mappers/raceResults.ts),
+          // а не технический sentinel.
+          position: row.position ?? index + 1,
           positionText: positionText(row),
           driver: { id: driver.id, code: driverMeta.name_acronym, fullName: driver.fullName },
           constructor,
@@ -200,8 +211,7 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
           status: resultStatus(row),
           points: row.points,
         };
-      })
-      .sort((a, b) => a.position - b.position);
+      });
 
     return entries.length > 0 ? entries : null;
   });

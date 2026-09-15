@@ -138,6 +138,12 @@ export interface RaceResultEntry {
 
 export interface QualifyingResultEntry {
   position: number;
+  // D/W/R для дисквалификации/неявки/схода — как у RaceResultEntry.
+  // Раньше у квалификации такого поля не было вообще: DSQ/DNS в
+  // sprint-квалификации (единственный источник которой — OpenF1, где
+  // position реально может быть null) отображались как позиция "0" без
+  // какого-либо текстового пояснения. Обнаружено и исправлено 16.09.2026.
+  positionText: string;
   driver: Pick<Driver, "id" | "fullName" | "code">;
   constructor: Pick<Constructor, "id" | "name">;
   q1: string | null;
