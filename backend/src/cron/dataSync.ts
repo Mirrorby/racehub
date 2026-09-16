@@ -8,6 +8,7 @@ import { syncCalendarAndStandings } from "./syncCalendarAndStandings";
 import { syncActiveRounds } from "./syncActiveRounds";
 import { backfillOlderRounds } from "./backfillOlderRounds";
 import { syncNextEntity } from "./syncEntityRoundRobin";
+import { syncTitleProgress } from "./syncTitleProgress";
 import { getSeasonCalendar } from "../services/calendarService";
 
 const HOT_KEY = "hot_sync";
@@ -71,6 +72,14 @@ export async function runDataSync(env: Env): Promise<void> {
     await syncNextEntity(env, races, budget);
   } catch (err) {
     console.error(`runDataSync: syncNextEntity failed (${errorReason(err)})`);
+  }
+
+  await sleep(UPSTREAM_PACE_MS);
+
+  try {
+    await syncTitleProgress(env, budget);
+  } catch (err) {
+    console.error(`runDataSync: syncTitleProgress failed (${errorReason(err)})`);
   }
 
   console.log(`runDataSync: tick complete, subrequest budget left = ${budget.left}`);

@@ -96,12 +96,31 @@ export function normalizeTeamName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-/** normalized team name -> {id, name} из уже закэшированных Jolpica-standings. */
-export async function buildConstructorNameIndex(env: Env): Promise<Map<string, ConstructorIndexEntry>> {
-  const { standings } = await getOrRefresh(env, "standings:constructors", 15 * 60, getConstructorStandings);
+/**
+ * driverCode (3-буквенный FIA-код, как в OpenF1 name_acronym) -> его
+ * текущая команда по Jolpica-standings. Строится из ТОГО ЖЕ Jolpica-
+ * запроса, что и buildDriverCodeIndex (getOrRefresh с тем же ключом
+ * "standings:drivers" — при попадании в кэш это не дополнительный запрос).
+ *
+ * ЗАМЕНЯЕТ собой прежний buildConstructorNameIndex + normalizeTeamName-
+ * сравнение team_name (OpenF1) с Constructor.name (Jolpica) напрямую как
+ * строк. Тот подход ломался, когда две системы называют одну и ту же
+ * команду по-разному (сокращения/спонсорские приставки/ребрендинг) — по
+ * факту это подтвердилось 16.09.2026 при аудите: 4 из 11 команд не
+ * сводились (`team_colors` в проде содержал только 7 строк из 11).
+ * Сведение по коду пилота надёжнее в принципе: код общий для обеих
+ * систем и назначается FIA один раз на карьеру пилота, а не каждый сезон
+ * заново под конкретное название команды.
+ */
+export async function buildDriverConstructorIndex(env: Env): Promise<Map<string, ConstructorIndexEntry>> {
+  const { standings } = await getOrRefresh(env, "standings:drivers", 15 * 60, getDriverStandings);
   const index = new Map<string, ConstructorIndexEntry>();
   for (const entry of standings) {
-    index.set(normalizeTeamName(entry.Constructor.name), { id: entry.Constructor.constructorId, name: entry.Constructor.name });
+    const code = entry.Driver.code ?? entry.Driver.driverId.slice(0, 3).toUpperCase();
+    const constructor = entry.Constructors[entry.Constructors.length - 1];
+    if (constructor) {
+      index.set(code, { id: constructor.constructorId, name: constructor.name });
+    }
   }
   return index;
 }
@@ -170,9 +189,9 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
     ]);
     if (results.length === 0) return null;
 
-    const [driverCodeIndex, constructorNameIndex] = await Promise.all([
+    const [driverCodeIndex, driverConstructorIndex] = await Promise.all([
       buildDriverCodeIndex(env),
-      buildConstructorNameIndex(env),
+      buildDriverConstructorIndex(env),
     ]);
 
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
@@ -192,7 +211,9 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
           id: `openf1-${row.driver_number}`,
           fullName: driverMeta.full_name,
         };
-        const constructor = constructorNameIndex.get(normalizeTeamName(driverMeta.team_name)) ?? {
+        // Команда — тоже через код пилота (driverConstructorIndex), не
+        // через сравнение team_name/Constructor.name как строк.
+        const constructor = driverConstructorIndex.get(driverMeta.name_acronym) ?? {
           id: normalizeTeamName(driverMeta.team_name).replace(/\s+/g, "_"),
           name: driverMeta.team_name,
         };
@@ -229,9 +250,9 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
     ]);
     if (championship.length === 0) return null;
 
-    const [driverCodeIndex, constructorNameIndex, winsByDriverId] = await Promise.all([
+    const [driverCodeIndex, driverConstructorIndex, winsByDriverId] = await Promise.all([
       buildDriverCodeIndex(env),
-      buildConstructorNameIndex(env),
+      buildDriverConstructorIndex(env),
       // OpenF1 championship_drivers не отдаёт число побед отдельно — берём
       // его из уже закэшированных (15 мин TTL) Jolpica-standings. Может на
       // одну гонку отставать от реальности в первые минуты после финиша
@@ -258,7 +279,9 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
         // Здесь же лежит team_colour от OpenF1, поэтому заодно используем
         // его как основной источник цвета вместо статичной таблицы.
         const color = `#${driverMeta.team_colour}`;
-        const constructorMeta = constructorNameIndex.get(normalizeTeamName(driverMeta.team_name)) ?? {
+        // Команда — через код пилота, не через сравнение имён (см.
+        // buildDriverConstructorIndex).
+        const constructorMeta = driverConstructorIndex.get(driverMeta.name_acronym) ?? {
           id: normalizeTeamName(driverMeta.team_name).replace(/\s+/g, "_"),
           name: driverMeta.team_name,
         };
@@ -304,16 +327,27 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
     ]);
     if (championship.length === 0) return null;
 
-    const [constructorNameIndex, winsByConstructorId] = await Promise.all([
-      buildConstructorNameIndex(env),
+    const [driverConstructorIndex, winsByConstructorId] = await Promise.all([
+      buildDriverConstructorIndex(env),
       buildConstructorWinsIndex(env),
     ]);
-    // championship_teams не содержит team_colour — берём его с любого
-    // пилота этой же команды из уже загруженного списка drivers сессии.
+    // championship_teams не содержит ни team_colour, ни driver_number —
+    // строим обе карты (цвет и constructorId) по team_name по данным
+    // drivers ТОЙ ЖЕ сессии. Ключевой момент: team_name здесь и в
+    // championship.team_name ниже — обе строки от OpenF1, то есть
+    // сравниваются между собой в одной и той же номенклатуре (в отличие
+    // от старой версии, которая сверяла team_name OpenF1 с Constructor.name
+    // Jolpica напрямую и на части команд не совпадала). constructorId для
+    // карты берём через код пилота (buildDriverConstructorIndex) — то есть
+    // единственное место, где вообще участвует Jolpica, это узнать РЕАЛЬНЫЙ
+    // constructorId пилота, а не сравнить два по-разному звучащих названия.
     const colorByTeamName = new Map<string, string>();
+    const constructorByTeamName = new Map<string, ConstructorIndexEntry>();
     for (const d of drivers) {
       const key = normalizeTeamName(d.team_name);
       if (!colorByTeamName.has(key)) colorByTeamName.set(key, `#${d.team_colour}`);
+      const constructor = driverConstructorIndex.get(d.name_acronym);
+      if (constructor && !constructorByTeamName.has(key)) constructorByTeamName.set(key, constructor);
     }
 
     const sorted = [...championship].sort((a, b) => a.position_current - b.position_current);
@@ -321,7 +355,7 @@ export async function getFastConstructorStandings(env: Env, latestRace: RaceWeek
 
     const result: Standing[] = sorted.map((row) => {
       const key = normalizeTeamName(row.team_name);
-      const constructor = constructorNameIndex.get(key) ?? {
+      const constructor = constructorByTeamName.get(key) ?? {
         id: key.replace(/\s+/g, "_"),
         name: row.team_name,
       };
@@ -361,13 +395,13 @@ export async function getLiveTeamColors(env: Env, latestRace: RaceWeekend | null
   // рантайм-ошибкой. Поэтому кэшируем как обычный Record, а Map собираем
   // уже на выходе из функции.
   const plain = await getOrRefresh(env, `openf1:team-colors:${latestRace.id}`, TEAM_COLOR_TTL_SECONDS, async () => {
-    const [drivers, constructorNameIndex] = await Promise.all([
+    const [drivers, driverConstructorIndex] = await Promise.all([
       openf1.getSessionDrivers(session.session_key),
-      buildConstructorNameIndex(env),
+      buildDriverConstructorIndex(env),
     ]);
     const record: Record<string, string> = {};
     for (const d of drivers) {
-      const constructor = constructorNameIndex.get(normalizeTeamName(d.team_name));
+      const constructor = driverConstructorIndex.get(d.name_acronym);
       if (constructor && !(constructor.id in record)) {
         record[constructor.id] = `#${d.team_colour}`;
       }

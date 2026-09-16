@@ -29,6 +29,10 @@ interface CircuitRow {
   circuit_id: string;
 }
 
+interface ExistingIdRow {
+  id: string;
+}
+
 async function buildEntityQueue(env: Env): Promise<EntityRef[]> {
   const queue: EntityRef[] = [];
 
@@ -69,6 +73,40 @@ async function buildEntityQueue(env: Env): Promise<EntityRef[]> {
 }
 
 /**
+ * Приоритет для сущностей, у которых ещё вообще нет строки в своей
+ * таблице — то же самое самовосстановление, что у backfillOlderRounds
+ * (см. cron/backfillOlderRounds.ts), только через сравнение множеств в
+ * JS, а не одним SQL-запросом (тут это проще: очередь и так уже собрана
+ * в памяти, а прямых запросов к апстриму эта проверка не стоит вовсе —
+ * только чтение из D1). Раньше сущность, на которой синк однажды упал,
+ * ждала полного оборота очереди (при ~58 элементах и тике раз в 15 минут —
+ * это больше 14 часов до повторной попытки); теперь она подбирается на
+ * следующем же тике, у которого хватит бюджета.
+ */
+async function findMissingEntity(env: Env, queue: EntityRef[]): Promise<EntityRef | null> {
+  const [drivers, constructors, circuits] = await Promise.all([
+    env.DB.prepare("SELECT driver_id AS id FROM driver_career").all<ExistingIdRow>(),
+    env.DB.prepare("SELECT constructor_id AS id FROM constructor_career").all<ExistingIdRow>(),
+    env.DB.prepare("SELECT circuit_id AS id FROM track_history").all<ExistingIdRow>(),
+  ]);
+  const existingDrivers = new Set((drivers.results ?? []).map((r) => r.id));
+  const existingConstructors = new Set((constructors.results ?? []).map((r) => r.id));
+  const existingCircuits = new Set((circuits.results ?? []).map((r) => r.id));
+
+  for (const item of queue) {
+    if (item.kind === "driver" && !existingDrivers.has(item.id)) return item;
+    if (item.kind === "constructor" && !existingConstructors.has(item.id)) return item;
+    if (item.kind === "circuit" && !existingCircuits.has(item.id)) return item;
+  }
+  // team_colors/driver_media — агрегатные элементы (не по одной сущности),
+  // им отдельный "missing"-приоритет не нужен: обычный цикл и так дойдёт
+  // до них не позже чем через ~58 тиков, а частичный результат одного
+  // прохода не "пусто", так что определить "не хватает" здесь не так
+  // однозначно, как для driver/constructor/circuit.
+  return null;
+}
+
+/**
  * Раз за тик считает и сохраняет ОДНУ сущность из очереди (карьера
  * пилота/команды, история трассы, либо разом все цвета команд), сдвигая
  * циклический курсор в app_state. При ~35-40 элементах очереди и тике раз
@@ -91,9 +129,10 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
   const queue = await buildEntityQueue(env);
   if (queue.length === 0) return;
 
+  const missing = await findMissingEntity(env, queue);
   const cursorRaw = await getAppState(env, CURSOR_KEY);
   const cursor = cursorRaw ? Number(cursorRaw) % queue.length : 0;
-  const entity = queue[cursor];
+  const entity = missing ?? queue[cursor];
   const nowIso = new Date().toISOString();
 
   try {
@@ -154,5 +193,10 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
     console.error(`syncNextEntity: failed for ${entity.kind}:${entity.id} (${errorReason(err)})`);
   }
 
-  await setAppState(env, CURSOR_KEY, String((cursor + 1) % queue.length));
+  // Курсор двигаем только если реально обработали ЕГО элемент — обработка
+  // приоритетного "missing" вне очереди не должна сбивать цикл freshness-
+  // прохода по остальным сущностям.
+  if (!missing) {
+    await setAppState(env, CURSOR_KEY, String((cursor + 1) % queue.length));
+  }
 }

@@ -183,7 +183,7 @@ export interface DriverCareerStats {
   podiums: number;
   poles: number;
   points: number;
-  championships: number;
+  championships: number | null; // null, пока cron/syncTitleProgress.ts не досчитал титулы (см. careerStatsService.ts)
   firstSeason: number | null;
   lastSeason: number | null;
   dateOfBirth: string | null;
@@ -198,7 +198,7 @@ export interface ConstructorCareerStats {
   wins: number;
   podiums: number;
   points: number;
-  championships: number;
+  championships: number | null; // null, пока cron/syncTitleProgress.ts не досчитал титулы
   firstSeason: number | null;
   lastSeason: number | null;
   // Шасси/мотор/руководитель команды/база — из курируемого датасета

@@ -110,7 +110,7 @@ export interface DriverCareerStats {
   podiums: number;
   poles: number;
   points: number;
-  championships: number;
+  championships: number | null;
   firstSeason: number | null;
   lastSeason: number | null;
   dateOfBirth: string | null;
@@ -122,7 +122,7 @@ export interface ConstructorCareerStats {
   wins: number;
   podiums: number;
   points: number;
-  championships: number;
+  championships: number | null;
   firstSeason: number | null;
   lastSeason: number | null;
   // Курируемый датасет (db/migrations/0003_precomputed_data.sql на

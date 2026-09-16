@@ -4,7 +4,7 @@ import * as openf1 from "../providers/openf1";
 import {
   findSessionCached,
   buildDriverCodeIndex,
-  buildConstructorNameIndex,
+  buildDriverConstructorIndex,
   normalizeTeamName,
   positionText,
   sortablePosition,
@@ -29,13 +29,17 @@ function formatGap(seconds: number): string {
 function resolveDriverAndConstructorSync(
   driverMeta: openf1.RawOpenF1Driver,
   driverCodeIndex: Map<string, { id: string; fullName: string }>,
-  constructorNameIndex: Map<string, { id: string; name: string }>,
+  driverConstructorIndex: Map<string, { id: string; name: string }>,
 ): { driver: { id: string; fullName: string }; constructor: { id: string; name: string } } {
   const driver = driverCodeIndex.get(driverMeta.name_acronym) ?? {
     id: `openf1-${driverMeta.driver_number}`,
     fullName: driverMeta.full_name,
   };
-  const constructor = constructorNameIndex.get(normalizeTeamName(driverMeta.team_name)) ?? {
+  // Команда — через код пилота (см. buildDriverConstructorIndex), а не
+  // через сравнение team_name/Constructor.name как строк — то сравнение
+  // ломалось на части команд (сокращения/спонсорские приставки у OpenF1
+  // не совпадают с тем, как команду называет Jolpica).
+  const constructor = driverConstructorIndex.get(driverMeta.name_acronym) ?? {
     id: normalizeTeamName(driverMeta.team_name).replace(/\s+/g, "_"),
     name: driverMeta.team_name,
   };
@@ -95,16 +99,16 @@ export async function getPracticeResults(
 
     const fastestOverall = Math.min(...bestLapByDriver.values());
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
-    const [driverCodeIndex, constructorNameIndex] = await Promise.all([
+    const [driverCodeIndex, driverConstructorIndex] = await Promise.all([
       buildDriverCodeIndex(env),
-      buildConstructorNameIndex(env),
+      buildDriverConstructorIndex(env),
     ]);
 
     const entries: PracticeResultEntry[] = [];
     for (const [driverNumber, bestLap] of bestLapByDriver.entries()) {
       const driverMeta = driversByNumber.get(driverNumber);
       if (!driverMeta) continue;
-      const { driver, constructor } = resolveDriverAndConstructorSync(driverMeta, driverCodeIndex, constructorNameIndex);
+      const { driver, constructor } = resolveDriverAndConstructorSync(driverMeta, driverCodeIndex, driverConstructorIndex);
       const positionInfo = latestPositionByDriver.get(driverNumber);
       const gap = bestLap - fastestOverall;
       entries.push({
@@ -163,9 +167,9 @@ export async function getSprintQualifyingResults(env: Env, weekend: RaceWeekend)
     if (results.length === 0) return null;
 
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
-    const [driverCodeIndex, constructorNameIndex] = await Promise.all([
+    const [driverCodeIndex, driverConstructorIndex] = await Promise.all([
       buildDriverCodeIndex(env),
-      buildConstructorNameIndex(env),
+      buildDriverConstructorIndex(env),
     ]);
     const entries: QualifyingResultEntry[] = [];
 
@@ -179,7 +183,7 @@ export async function getSprintQualifyingResults(env: Env, weekend: RaceWeekend)
 
     sortedResults.forEach((row, index) => {
       const driverMeta = driversByNumber.get(row.driver_number)!;
-      const { driver, constructor } = resolveDriverAndConstructorSync(driverMeta, driverCodeIndex, constructorNameIndex);
+      const { driver, constructor } = resolveDriverAndConstructorSync(driverMeta, driverCodeIndex, driverConstructorIndex);
       const stages = Array.isArray(row.duration) ? row.duration : row.duration != null ? [row.duration] : [];
       entries.push({
         // Настоящий OpenF1 position, когда есть; иначе — последовательный
