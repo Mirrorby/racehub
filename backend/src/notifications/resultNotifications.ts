@@ -1,19 +1,9 @@
 import type { Env } from "../env";
-import { getOrRefresh } from "../lib/cache";
-import { errorReason } from "../lib/errors";
-import { sendTelegramMessage } from "../lib/telegramBot";
-import { getDriverStandings } from "../providers/jolpica";
-import { mapDriverStandings } from "../mappers/standings";
-import { getFastDriverStandings } from "../services/liveResultsService";
+import { deliverNotification } from "../lib/telegramBot";
 import { getMostRecentStartedRace } from "../services/calendarService";
 import { getRaceDetail } from "../services/raceDetailService";
 import type { RaceResultEntry, RaceWeekend, Standing } from "../types";
 
-// Тот же ключ и TTL, что использует GET /api/standings/drivers — если
-// standings уже свежие в кэше (кто-то недавно открыл Standings-страницу),
-// повторного похода в Jolpica не будет.
-const STANDINGS_CACHE_KEY = "standings:drivers";
-const STANDINGS_TTL_SECONDS = 15 * 60;
 const CHAMPIONSHIP_LEADER_STATE_KEY = "championship_leader_driver_id";
 
 interface NotifiableUser {
@@ -25,15 +15,25 @@ interface DriverFanUser extends NotifiableUser {
   favorite_driver_id: string;
 }
 
-/** INSERT OR IGNORE в notification_log; true, если запись реально новая (можно слать). */
-async function claimNotification(env: Env, userId: string, key: string): Promise<boolean> {
-  const result = await env.DB.prepare(
+interface StandingsRow {
+  data_json: string;
+}
+
+/** true, если уже отправляли (есть запись в notification_log под этим ключом). */
+async function wasAlreadySent(env: Env, userId: string, key: string): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT 1 FROM notification_log WHERE user_id = ? AND notification_key = ?")
+    .bind(userId, key)
+    .first();
+  return Boolean(row);
+}
+
+async function claimNotification(env: Env, userId: string, key: string): Promise<void> {
+  await env.DB.prepare(
     `INSERT INTO notification_log (id, user_id, notification_key) VALUES (?, ?, ?)
      ON CONFLICT (user_id, notification_key) DO NOTHING`,
   )
     .bind(crypto.randomUUID(), userId, key)
     .run();
-  return result.meta.changes > 0;
 }
 
 function isClassified(entry: RaceResultEntry): boolean {
@@ -58,9 +58,13 @@ async function notifyRaceResults(env: Env, weekend: RaceWeekend, results: RaceRe
   const key = `results:${weekend.id}:race`;
 
   for (const user of users.results) {
-    if (await claimNotification(env, user.id, key)) {
-      await sendTelegramMessage(env, user.telegram_user_id, message);
-    }
+    // Claim — только после подтверждённой отправки (см.
+    // lib/telegramBot.ts::deliverNotification). Раньше было наоборот:
+    // claim до отправки означал безвозвратную потерю уведомления при
+    // любом транзиентном сбое Telegram API. Обнаружено 16.09.2026.
+    if (await wasAlreadySent(env, user.id, key)) continue;
+    const delivered = await deliverNotification(env, user.id, user.telegram_user_id, message);
+    if (delivered) await claimNotification(env, user.id, key);
   }
 }
 
@@ -80,29 +84,40 @@ async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, result
   for (const user of users.results) {
     const entry = results.find((r) => r.driver.id === user.favorite_driver_id);
     if (!entry) continue; // не участвовал в этой гонке (замена, отсутствие и т.п.)
-
-    if (!(await claimNotification(env, user.id, key))) continue;
+    if (await wasAlreadySent(env, user.id, key)) continue;
 
     const text = isClassified(entry)
       ? `🏎️ ${entry.driver.fullName} finished <b>P${entry.position}</b> at ${weekend.name} (+${entry.points} pts).`
       : `🏎️ ${entry.driver.fullName} didn't finish ${weekend.name}: ${entry.status}.`;
-    await sendTelegramMessage(env, user.telegram_user_id, text);
+    const delivered = await deliverNotification(env, user.id, user.telegram_user_id, text);
+    if (delivered) await claimNotification(env, user.id, key);
   }
 }
 
-async function resolveChampionshipLeader(env: Env, weekend: RaceWeekend): Promise<Standing | undefined> {
-  const fast = await getFastDriverStandings(env, weekend).catch((err) => {
-    console.error(`OpenF1 fast-path standings failed for leader check (${errorReason(err)}), falling back to Jolpica`);
-    return null;
-  });
-  if (fast) return fast[0];
-
-  const { standings } = await getOrRefresh(env, STANDINGS_CACHE_KEY, STANDINGS_TTL_SECONDS, getDriverStandings);
-  return mapDriverStandings(standings)[0];
+/**
+ * Раньше здесь был собственный живой запрос к OpenF1/Jolpica (fast-path +
+ * фолбэк), независимый от cron/syncCalendarAndStandings.ts — та же логика,
+ * продублированная в другом файле, со своим кэшем в api_cache. Проблема
+ * не только в дублировании: этот файл вызывается по своему 5-минутному
+ * триггеру, а наполнение D1 — по своему 15-минутному, и эти два
+ * расписания совпадают каждые 15 минут (0,15,30,45) — то есть раз в 15
+ * минут два независимых инвока воркера потенциально били в Jolpica/OpenF1
+ * одновременно, ни один из них не зная о SubrequestBudget другого. Теперь
+ * здесь просто читаем то, что cron уже посчитал — обновление раз в 15
+ * минут (в гоночный уик-энд) более чем достаточно для проверки "не
+ * сменился ли лидер". Обнаружено и исправлено 16.09.2026 при аудите.
+ */
+async function resolveChampionshipLeader(env: Env): Promise<Standing | undefined> {
+  const row = await env.DB.prepare(
+    "SELECT data_json FROM standings_cache WHERE type = 'drivers' ORDER BY updated_at DESC LIMIT 1",
+  ).first<StandingsRow>();
+  if (!row) return undefined;
+  const standings = JSON.parse(row.data_json) as Standing[];
+  return standings[0];
 }
 
 async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): Promise<void> {
-  const leader = await resolveChampionshipLeader(env, weekend);
+  const leader = await resolveChampionshipLeader(env);
   if (!leader?.driver) return;
 
   const stored = await env.DB.prepare("SELECT value FROM app_state WHERE key = ?")
@@ -139,9 +154,9 @@ async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): P
   const key = `leader-change:${weekend.id}`;
 
   for (const user of users.results) {
-    if (await claimNotification(env, user.id, key)) {
-      await sendTelegramMessage(env, user.telegram_user_id, message);
-    }
+    if (await wasAlreadySent(env, user.id, key)) continue;
+    const delivered = await deliverNotification(env, user.id, user.telegram_user_id, message);
+    if (delivered) await claimNotification(env, user.id, key);
   }
 }
 

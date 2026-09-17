@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { getSeasonCalendar } from "../services/calendarService";
-import { sendTelegramMessage } from "../lib/telegramBot";
+import { deliverNotification } from "../lib/telegramBot";
 import type { RaceWeekend, Session, SessionType } from "../types";
 
 /**
@@ -80,16 +80,31 @@ async function processSession(env: Env, weekend: RaceWeekend, session: Session, 
   const notificationKey = `session:${weekend.id}:${session.type}`;
 
   for (const user of candidates.results ?? []) {
-    const inserted = await env.DB.prepare(
+    // Не claim'им заранее — см. lib/telegramBot.ts::deliverNotification.
+    // Идемпотентность всё ещё гарантирована: если отправка прошла, но
+    // clam ниже почему-то не выполнится (редкий сбой D1 между запросами),
+    // максимум — один дубль на следующем тике, а не безвозвратная потеря.
+    const alreadySent = await env.DB.prepare(
+      "SELECT 1 FROM notification_log WHERE user_id = ? AND notification_key = ?",
+    )
+      .bind(user.id, notificationKey)
+      .first();
+    if (alreadySent) continue;
+
+    const delivered = await deliverNotification(
+      env,
+      user.id,
+      user.telegram_user_id,
+      formatMessage(weekend, session, user.minutes_before),
+    );
+    if (!delivered) continue;
+
+    await env.DB.prepare(
       `INSERT INTO notification_log (id, user_id, notification_key) VALUES (?, ?, ?)
        ON CONFLICT (user_id, notification_key) DO NOTHING`,
     )
       .bind(crypto.randomUUID(), user.id, notificationKey)
       .run();
-
-    if (inserted.meta.changes === 0) continue; // уже отправляли
-
-    await sendTelegramMessage(env, user.telegram_user_id, formatMessage(weekend, session, user.minutes_before));
     sentCount++;
   }
 
@@ -103,9 +118,10 @@ async function processSession(env: Env, weekend: RaceWeekend, session: Session, 
  * уик-энд, а не на весь календарь. Для reminder-ов этого достаточно —
  * следующая после него гонка всегда дальше, чем максимальный
  * minutes_before (1440 мин / 24ч), так что до неё в любом случае рано
- * слать. Также не реализованы result-based уведомления
- * (favoriteDriverResultEnabled/championshipChangeEnabled/resultsEnabled) —
- * это требует ленты результатов по сессии, которой пока нет в data layer.
+ * слать. Result-based уведомления (favoriteDriverResultEnabled/
+ * championshipChangeEnabled/resultsEnabled) реализованы отдельно, см.
+ * notifications/resultNotifications.ts и его собственный scheduled-вызов
+ * в index.ts — этот файл занимается только напоминаниями о сессиях.
  */
 export async function runSessionReminders(env: Env): Promise<void> {
   const { races } = await getSeasonCalendar(env);
