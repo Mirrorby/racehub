@@ -381,6 +381,28 @@ interface ConstructorStandingsSeasonResponse {
   MRData: { StandingsTable: { StandingsLists: Array<{ ConstructorStandings: RawConstructorStanding[] }> } };
 }
 
+/**
+ * ВОЗМОЖНАЯ, НО НЕ ПОДТВЕРЖДЁННАЯ проблема: /current/constructorStandings.json
+ * аномально использует "red_bull_racing"/"racing_bulls" вместо "red_bull"/
+ * "rb", которые используют все остальные эндпоинты (результаты гонок,
+ * квалификации, driverStandings — см. полный разбор в
+ * mappers/standings.ts::CONSTRUCTOR_STANDINGS_ALIASES). Не проверено
+ * вживую, ведёт ли себя так же ЭТОТ, сезонный вариант эндпоинта
+ * (/{season}/constructors/{id}/constructorstandings.json) — если да, то
+ * getConstructorSeasonPosition("red_bull", ...)/("rb", ...) будет тихо
+ * возвращать null для КАЖДОГО сезона этих двух команд, и championships
+ * в их driver_career/constructor_career будет занижен.
+ *
+ * Осознанно НЕ добавляю здесь ретрай под альтернативным id: legitimate
+ * null (сезон без титула) — это подавляющее большинство случаев для
+ * любой команды, и слепой ретрай на каждый null удвоил бы расход
+ * подзапросов именно для этих двух команд — то есть подрывал бы
+ * SubrequestBudget ровно там, где его только что чинили (см.
+ * cron/syncTitleProgress.ts). Если после нескольких циклов round-robin
+ * у red_bull/rb в driver_career/constructor_career окажется 0 титулов
+ * там, где реально должно быть больше — это и будет подтверждением,
+ * тогда чиним предметно, а не заранее вслепую.
+ */
 export async function getConstructorSeasonPosition(season: number, constructorId: string): Promise<number | null> {
   const data = await fetchJson<ConstructorStandingsSeasonResponse>(
     `/${season}/constructors/${constructorId}/constructorstandings.json`,

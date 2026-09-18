@@ -315,59 +315,73 @@ export async function getFastDriverStandings(env: Env, latestRace: RaceWeekend):
   });
 }
 
-/** Быстрый кубок конструкторов через OpenF1 championship_teams. */
+/**
+ * Быстрый кубок конструкторов через OpenF1.
+ *
+ * НЕ использует championship_teams: тот эндпоинт даёт team_name без
+ * driver_number, и единственный способ связать его с constructorId был —
+ * сравнить team_name с тем, что в /drivers той же сессии. Оказалось, что
+ * это сравнение ломается даже когда ОБЕ стороны — от OpenF1: сам OpenF1
+ * не гарантирует одинаковое написание team_name в разных своих
+ * эндпоинтах (подтверждено 17.09.2026 в проде: даже после перехода на
+ * сведение по коду пилота constructor_career продолжал получать "rb"/
+ * "red_bull" вместо канонических "racing_bulls"/"red_bull_racing" — то
+ * есть сам синтетический fallback по team_name срабатывал, значит
+ * team_name у championship_teams и у drivers для одной и той же команды
+ * не совпадали). championship_drivers, в отличие от championship_teams,
+ * содержит driver_number — конструкторские очки просто суммируются по
+ * пилотам одной команды, определённой через driverConstructorIndex (код
+ * пилота), без единого сравнения строк.
+ */
 export async function getFastConstructorStandings(env: Env, latestRace: RaceWeekend): Promise<Standing[] | null> {
   const session = await findSessionCached(env, latestRace, "race");
   if (!session) return null;
 
   return getOrRefresh(env, `openf1:standings:constructors:${latestRace.id}`, FAST_PATH_TTL_SECONDS, async () => {
-    const [championship, drivers] = await Promise.all([
-      openf1.getChampionshipTeams(session.session_key),
+    const [driversChampionship, drivers] = await Promise.all([
+      openf1.getChampionshipDrivers(session.session_key),
       openf1.getSessionDrivers(session.session_key),
     ]);
-    if (championship.length === 0) return null;
+    if (driversChampionship.length === 0) return null;
 
     const [driverConstructorIndex, winsByConstructorId] = await Promise.all([
       buildDriverConstructorIndex(env),
       buildConstructorWinsIndex(env),
     ]);
-    // championship_teams не содержит ни team_colour, ни driver_number —
-    // строим обе карты (цвет и constructorId) по team_name по данным
-    // drivers ТОЙ ЖЕ сессии. Ключевой момент: team_name здесь и в
-    // championship.team_name ниже — обе строки от OpenF1, то есть
-    // сравниваются между собой в одной и той же номенклатуре (в отличие
-    // от старой версии, которая сверяла team_name OpenF1 с Constructor.name
-    // Jolpica напрямую и на части команд не совпадала). constructorId для
-    // карты берём через код пилота (buildDriverConstructorIndex) — то есть
-    // единственное место, где вообще участвует Jolpica, это узнать РЕАЛЬНЫЙ
-    // constructorId пилота, а не сравнить два по-разному звучащих названия.
-    const colorByTeamName = new Map<string, string>();
-    const constructorByTeamName = new Map<string, ConstructorIndexEntry>();
-    for (const d of drivers) {
-      const key = normalizeTeamName(d.team_name);
-      if (!colorByTeamName.has(key)) colorByTeamName.set(key, `#${d.team_colour}`);
-      const constructor = driverConstructorIndex.get(d.name_acronym);
-      if (constructor && !constructorByTeamName.has(key)) constructorByTeamName.set(key, constructor);
+    const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
+
+    interface Aggregate {
+      constructor: ConstructorIndexEntry;
+      points: number;
+      color: string;
+    }
+    const byConstructorId = new Map<string, Aggregate>();
+
+    for (const row of driversChampionship) {
+      const driverMeta = driversByNumber.get(row.driver_number);
+      if (!driverMeta) continue;
+      const constructor = driverConstructorIndex.get(driverMeta.name_acronym);
+      if (!constructor) continue; // не удалось свести пилота — пропускаем, не гадаем с fallback-id
+
+      const existing = byConstructorId.get(constructor.id);
+      if (existing) {
+        existing.points += row.points_current;
+      } else {
+        byConstructorId.set(constructor.id, { constructor, points: row.points_current, color: `#${driverMeta.team_colour}` });
+      }
     }
 
-    const sorted = [...championship].sort((a, b) => a.position_current - b.position_current);
-    const leaderPoints = sorted[0]?.points_current ?? 0;
+    const sorted = [...byConstructorId.values()].sort((a, b) => b.points - a.points);
+    const leaderPoints = sorted[0]?.points ?? 0;
 
-    const result: Standing[] = sorted.map((row) => {
-      const key = normalizeTeamName(row.team_name);
-      const constructor = constructorByTeamName.get(key) ?? {
-        id: key.replace(/\s+/g, "_"),
-        name: row.team_name,
-      };
-      return {
-        position: row.position_current,
-        points: row.points_current,
-        wins: winsByConstructorId.get(constructor.id) ?? 0,
-        gapToLeader: row.points_current === leaderPoints ? 0 : leaderPoints - row.points_current,
-        movement: "unknown" as const,
-        constructor: { ...constructor, color: colorByTeamName.get(key) },
-      };
-    });
+    const result: Standing[] = sorted.map((entry, index) => ({
+      position: index + 1,
+      points: entry.points,
+      wins: winsByConstructorId.get(entry.constructor.id) ?? 0,
+      gapToLeader: entry.points === leaderPoints ? 0 : leaderPoints - entry.points,
+      movement: "unknown" as const,
+      constructor: { ...entry.constructor, color: entry.color },
+    }));
 
     return result.length > 0 ? result : null;
   });

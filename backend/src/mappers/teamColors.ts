@@ -2,20 +2,19 @@
  * Ergast/Jolpica не отдаёт фирменные цвета команд. Держим их отдельно —
  * используются для акцентов в UI (полоска у имени пилота/команды, тема).
  *
- * ВНИМАНИЕ: constructorId "rb"/"red_bull" ниже — то, что раньше считалось
- * проверенным вручную (см. историю правок), на деле разошлось с тем, что
- * реально отдаёт живой /driverstandings и /constructorstandings в 2026
- * сезоне: там constructorId — "racing_bulls" и "red_bull_racing"
- * (подтверждено напрямую из прод-таблицы standings_cache 13.09.2026, не
- * из документации — Jolpica сама пишет, что её модель данных не совпадает
- * с legacy Ergast, и, похоже, именно эти два id и переименовали). Без
- * этой правки live-цвета из OpenF1 (team_colors) почти всегда есть, но
- * ДО того, как они посчитаются (холодный старт/начало сезона), фолбэк
- * ниже тихо отдавал бы серый FALLBACK_COLOR для этих двух команд.
- *
- * ВАЖНО: эта таблица дублируется во frontend/src/theme/teamColors.ts.
- * При обновлении ливрей/составов на будущий сезон нужно править ОБА файла —
- * технический долг, зафиксированный в аудите.
+ * constructorId ниже — "red_bull"/"rb". Это ПРАВИЛЬНАЯ, доминирующая
+ * конвенция: подтверждена по /current/{round}/results.json,
+ * /current/{round}/qualifying.json и /current/driverStandings.json —
+ * ВЕЗДЕ, где реально текут гоночные данные. Ложная тревога 13.09.2026
+ * (правка в сторону "red_bull_racing"/"racing_bulls") основывалась
+ * только на одном эндпоинте — /current/constructorStandings.json,
+ * который аномально использует другой id (и другое ИМЯ: "Red Bull"
+ * против "Red Bull Racing", "RB F1 Team" против "Racing Bulls") для тех
+ * же двух команд. Откат и разбор — 17.09.2026 при аудите. Единственное
+ * место, которому эта аномалия реально касается — mapConstructorStandings
+ * (mappers/standings.ts), там теперь есть точечный alias именно под
+ * этот один эндпоинт; везде остальным (включая эту таблицу) канон —
+ * "red_bull"/"rb".
  */
 const CONSTRUCTOR_COLORS: Record<string, string> = {
   alpine: "#2875B4",
@@ -26,8 +25,8 @@ const CONSTRUCTOR_COLORS: Record<string, string> = {
   haas: "#CF1E21",
   mclaren: "#E27F31",
   mercedes: "#2D9790",
-  racing_bulls: "#153E95",
-  red_bull_racing: "#1C2C7B",
+  rb: "#153E95",
+  red_bull: "#1C2C7B",
   williams: "#1835D7",
 };
 

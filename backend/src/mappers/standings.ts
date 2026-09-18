@@ -45,11 +45,31 @@ export function mapDriverStandings(raw: RawDriverStanding[], liveColors?: Map<st
   });
 }
 
+/**
+ * Единственная известная аномалия: /current/constructorStandings.json
+ * отдаёт другой constructorId (И другое имя) для тех же двух команд, что
+ * везде остальные Jolpica-эндпоинты (результаты гонок/квалификации,
+ * driverStandings) называют "red_bull"/"rb". Подтверждено вживую
+ * 17.09.2026 при аудите — см. полный разбор в
+ * db/migrations/0003_precomputed_data.sql и backend/src/mappers/teamColors.ts.
+ * Канонизируем здесь же, на входе в эту функцию, чтобы результат
+ * mapConstructorStandings всегда совпадал с constructorId остальной
+ * системы (team_details, driver_career, season_races и т.д.) — без этого
+ * round-robin (cron/syncEntityRoundRobin.ts) заводил бы для этих двух
+ * команд ВТОРУЮ, отдельную строку в constructor_career под "чужим" id.
+ */
+const CONSTRUCTOR_STANDINGS_ALIASES: Record<string, { id: string; name: string }> = {
+  red_bull_racing: { id: "red_bull", name: "Red Bull" },
+  racing_bulls: { id: "rb", name: "RB F1 Team" },
+};
+
 export function mapConstructorStandings(raw: RawConstructorStanding[], liveColors?: Map<string, string>): Standing[] {
   const leaderPoints = raw.length > 0 ? Number(raw[0].points) : 0;
   return raw.map((entry) => {
     const points = Number(entry.points);
-    const constructorId = entry.Constructor.constructorId;
+    const alias = CONSTRUCTOR_STANDINGS_ALIASES[entry.Constructor.constructorId];
+    const constructorId = alias?.id ?? entry.Constructor.constructorId;
+    const constructorName = alias?.name ?? entry.Constructor.name;
     const color = liveColors?.get(constructorId) ?? constructorColor(constructorId);
     return {
       position: Number(entry.position),
@@ -57,7 +77,7 @@ export function mapConstructorStandings(raw: RawConstructorStanding[], liveColor
       wins: Number(entry.wins),
       gapToLeader: points === leaderPoints ? 0 : leaderPoints - points,
       movement: "unknown",
-      constructor: { id: constructorId, name: entry.Constructor.name, color, nationality: entry.Constructor.nationality },
+      constructor: { id: constructorId, name: constructorName, color, nationality: entry.Constructor.nationality },
     };
   });
 }

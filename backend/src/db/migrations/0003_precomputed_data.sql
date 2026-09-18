@@ -113,22 +113,27 @@ CREATE TABLE IF NOT EXISTS track_curated (
 -- (официального единоличного team principal у этих двух команд нет).
 -- ============================================================
 
--- ВНИМАНИЕ: constructor_id для Red Bull и Racing Bulls ниже —
--- "red_bull_racing"/"racing_bulls", а не "red_bull"/"rb" (как было тут
--- изначально, по аналогии с именами файлов ассетов фронтенда). Расхождение
--- обнаружено 13.09.2026 напрямую из прод-таблицы standings_cache: реальный
--- Jolpica /driverstandings и /constructorstandings в 2026 сезоне отдают
--- entry.Constructor.constructorId именно в таком виде. Сама прод-база уже
--- исправлена точечным UPDATE в тот же день — этот файл правится, чтобы при
--- повторном применении миграции (например, на чистой dev-базе) сразу были
--- верные данные, без повторного наступания на те же грабли.
+-- ИСТОРИЯ РАССЛЕДОВАНИЯ constructor_id для Red Bull/Racing Bulls (не
+-- трогайте эти два id без явного повторного вживую-подтверждения):
+-- 13.09.2026 — по прод-таблице standings_cache показалось, что канон —
+--   "red_bull_racing"/"racing_bulls" (так их называет ИМЕННО
+--   /current/constructorStandings.json), этот файл был исправлен в ту
+--   сторону.
+-- 17.09.2026 (аудит) — выяснилось, что это была ошибка направления:
+--   /current/{round}/results.json, /current/{round}/qualifying.json И
+--   /current/driverStandings.json — то есть ВСЕ эндпоинты, откуда реально
+--   текут гоночные данные — используют "red_bull"/"rb". Аномалия ровно
+--   одна: /constructorStandings.json (там ещё и ИМЯ другое — "Red Bull"
+--   вместо "Red Bull Racing", "RB F1 Team" вместо "Racing Bulls"). Правка
+--   от 13.09 откачена, точечный alias под этот один эндпоинт — в
+--   mappers/standings.ts::mapConstructorStandings, не здесь.
 INSERT INTO team_details (constructor_id, season, chassis, engine, principal, base, founded_year, updated_at) VALUES
   ('mclaren',      2026, 'MCL40',    'Mercedes',                    'Andrea Stella',                      'Woking, Великобритания',                         1966, CURRENT_TIMESTAMP),
   ('mercedes',     2026, 'W17',      'Mercedes',                    'Toto Wolff',                          'Brackley, Великобритания',                        2010, CURRENT_TIMESTAMP),
-  ('red_bull_racing', 2026, 'RB22',  'Red Bull Powertrains-Ford',   'Laurent Mekies',                      'Milton Keynes, Великобритания',                   2005, CURRENT_TIMESTAMP),
+  ('red_bull',     2026, 'RB22',     'Red Bull Powertrains-Ford',   'Laurent Mekies',                      'Milton Keynes, Великобритания',                   2005, CURRENT_TIMESTAMP),
   ('ferrari',      2026, 'SF-26',    'Ferrari',                     'Fred Vasseur',                        'Maranello, Италия',                               1950, CURRENT_TIMESTAMP),
   ('williams',     2026, 'FW48',     'Mercedes',                    'James Vowles',                        'Grove, Великобритания',                           1977, CURRENT_TIMESTAMP),
-  ('racing_bulls', 2026, 'VCARB 03', 'Red Bull Powertrains-Ford',   'Alan Permane',                        'Faenza, Италия',                                  2006, CURRENT_TIMESTAMP),
+  ('rb',           2026, 'VCARB 03', 'Red Bull Powertrains-Ford',   'Alan Permane',                        'Faenza, Италия',                                  2006, CURRENT_TIMESTAMP),
   ('aston_martin', 2026, 'AMR26',    'Honda',                       'Adrian Newey',                        'Silverstone, Великобритания',                     2021, CURRENT_TIMESTAMP),
   ('haas',         2026, 'VF-26',    'Ferrari',                     'Ayao Komatsu',                        'Kannapolis, США',                                 2016, CURRENT_TIMESTAMP),
   ('audi',         2026, 'R26',      'Audi',                        'Mattia Binotto (Team Principal); Allan McNish (Racing Director)', 'Hinwil, Швейцария',       2026, CURRENT_TIMESTAMP),
