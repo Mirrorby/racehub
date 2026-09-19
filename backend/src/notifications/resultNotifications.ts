@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { deliverNotification } from "../lib/telegramBot";
 import { getMostRecentStartedRace } from "../services/calendarService";
 import { getRaceDetail } from "../services/raceDetailService";
-import { formatRaceResultsMessage, formatFavoriteDriverMessage, formatChampionshipLeaderMessage, type NotificationLang } from "./messages";
+import { formatRaceResultsMessage, formatFavoritesMessage, formatDriverResultLine, formatChampionshipLeaderMessage, type NotificationLang } from "./messages";
 import type { RaceResultEntry, RaceWeekend, Standing } from "../types";
 
 const CHAMPIONSHIP_LEADER_STATE_KEY = "championship_leader_driver_id";
@@ -11,10 +11,6 @@ interface NotifiableUser {
   id: string;
   telegram_user_id: number;
   language: NotificationLang;
-}
-
-interface DriverFanUser extends NotifiableUser {
-  favorite_driver_id: string;
 }
 
 interface StandingsRow {
@@ -64,27 +60,63 @@ async function notifyRaceResults(env: Env, weekend: RaceWeekend, results: RaceRe
   }
 }
 
-async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, results: RaceResultEntry[]): Promise<void> {
+interface FavoritesUser extends NotifiableUser {
+  favorite_driver_id: string | null;
+  favorite_driver_2_id: string | null;
+  favorite_constructor_id: string | null;
+}
+
+/**
+ * Покрывает ВСЕ виды "фаворитов", которые вообще можно выбрать в
+ * Personalization.tsx: до двух любимых пилотов и любимую команду — все
+ * три независимы друг от друга (не взаимоисключающий выбор), и раньше
+ * учитывался только favorite_driver_id (первый пилот), а
+ * favorite_driver_2_id и favorite_constructor_id в уведомлениях не
+ * участвовали вообще. Одно сообщение на пользователя, а не три отдельных
+ * пуша подряд — строки собираются под общий заголовок.
+ */
+async function notifyFavorites(env: Env, weekend: RaceWeekend, results: RaceResultEntry[]): Promise<void> {
   const users = await env.DB.prepare(
-    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, up.favorite_driver_id AS favorite_driver_id,
+    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id,
+            up.favorite_driver_id AS favorite_driver_id,
+            up.favorite_driver_2_id AS favorite_driver_2_id,
+            up.favorite_constructor_id AS favorite_constructor_id,
             COALESCE(up.language, 'en') AS language
      FROM users u
      JOIN notification_settings ns ON ns.user_id = u.id
      JOIN user_preferences up ON up.user_id = u.id
-     WHERE ns.enabled = 1 AND ns.favorite_driver_result_enabled = 1 AND up.favorite_driver_id IS NOT NULL`,
-  ).all<DriverFanUser>();
+     WHERE ns.enabled = 1 AND ns.favorite_driver_result_enabled = 1
+       AND (up.favorite_driver_id IS NOT NULL OR up.favorite_driver_2_id IS NOT NULL OR up.favorite_constructor_id IS NOT NULL)`,
+  ).all<FavoritesUser>();
 
   if (!users.results || users.results.length === 0) return;
 
-  const key = `results:${weekend.id}:favoriteDriver`;
+  const key = `results:${weekend.id}:favorites`;
 
   for (const user of users.results) {
-    const entry = results.find((r) => r.driver.id === user.favorite_driver_id);
-    if (!entry) continue; // не участвовал в этой гонке (замена, отсутствие и т.п.)
     if (await wasAlreadySent(env, user.id, key)) continue;
 
-    const text = formatFavoriteDriverMessage(user.language, weekend, entry);
-    const delivered = await deliverNotification(env, user.id, user.telegram_user_id, text);
+    const lines: string[] = [];
+    const seenDriverIds = new Set<string>();
+
+    for (const driverId of [user.favorite_driver_id, user.favorite_driver_2_id]) {
+      if (!driverId || seenDriverIds.has(driverId)) continue; // на случай если оба поля указывают на одного и того же пилота
+      seenDriverIds.add(driverId);
+      const entry = results.find((r) => r.driver.id === driverId);
+      if (entry) lines.push(formatDriverResultLine(user.language, entry));
+    }
+
+    if (user.favorite_constructor_id) {
+      const teamEntries = results.filter((r) => r.constructor.id === user.favorite_constructor_id);
+      for (const entry of teamEntries) {
+        if (seenDriverIds.has(entry.driver.id)) continue; // не дублируем пилота, если он же выбран лично
+        lines.push(formatDriverResultLine(user.language, entry));
+      }
+    }
+
+    if (lines.length === 0) continue; // ни один фаворит не участвовал в этой гонке
+    const message = formatFavoritesMessage(user.language, weekend, lines);
+    const delivered = await deliverNotification(env, user.id, user.telegram_user_id, message);
     if (delivered) await claimNotification(env, user.id, key);
   }
 }
@@ -172,6 +204,6 @@ export async function runResultNotifications(env: Env): Promise<void> {
   if (!detail?.raceResults) return; // ещё не опубликованы апстримом
 
   await notifyRaceResults(env, weekend, detail.raceResults);
-  await notifyFavoriteDriverResult(env, weekend, detail.raceResults);
+  await notifyFavorites(env, weekend, detail.raceResults);
   await notifyChampionshipLeaderChange(env, weekend);
 }

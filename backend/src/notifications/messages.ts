@@ -61,16 +61,31 @@ function isClassified(entry: RaceResultEntry): boolean {
   return entry.status === "Finished" || entry.status.startsWith("+");
 }
 
-export function formatFavoriteDriverMessage(lang: NotificationLang, weekend: RaceWeekend, entry: RaceResultEntry): string {
+function formatDriverResultLine(lang: NotificationLang, entry: RaceResultEntry): string {
   if (isClassified(entry)) {
     return lang === "ru"
-      ? `🏎️ ${entry.driver.fullName} финишировал <b>P${entry.position}</b> на этапе ${weekend.name} (+${entry.points} очк.).`
-      : `🏎️ ${entry.driver.fullName} finished <b>P${entry.position}</b> at ${weekend.name} (+${entry.points} pts).`;
+      ? `${entry.driver.fullName}: P${entry.position} (+${entry.points} очк.)`
+      : `${entry.driver.fullName}: P${entry.position} (+${entry.points} pts)`;
   }
-  return lang === "ru"
-    ? `🏎️ ${entry.driver.fullName} не финишировал на этапе ${weekend.name}: ${entry.status}.`
-    : `🏎️ ${entry.driver.fullName} didn't finish ${weekend.name}: ${entry.status}.`;
+  return lang === "ru" ? `${entry.driver.fullName}: сход (${entry.status})` : `${entry.driver.fullName}: DNF (${entry.status})`;
 }
+
+/**
+ * Одна строка на фаворита-пилота (formatDriverResultLine) плюс, если
+ * выбрана любимая команда, отдельная строка на каждого из ЕЁ двух
+ * пилотов той же гонки — раньше про favorite_constructor_id (команду) в
+ * уведомлениях не было вообще ни строчки, хотя Personalization.tsx явно
+ * позволяет выбрать её отдельно от пилотов (см. user_preferences,
+ * favorite_driver_2_id тоже игнорировался — учитывался только первый
+ * выбранный пилот). Обнаружено 17.09.2026, поймано не аудитом, а прямым
+ * замечанием пользователя.
+ */
+export function formatFavoritesMessage(lang: NotificationLang, weekend: RaceWeekend, lines: string[]): string {
+  const title = lang === "ru" ? `Ваши фавориты на этапе ${weekend.name}` : `Your favorites at ${weekend.name}`;
+  return `🏎️ <b>${title}</b>\n\n${lines.join("\n")}`;
+}
+
+export { formatDriverResultLine };
 
 export function formatChampionshipLeaderMessage(lang: NotificationLang, weekend: RaceWeekend, leader: Standing): string {
   const name = leader.driver?.fullName ?? "";
