@@ -139,9 +139,26 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
     if (entity.kind === "driver") {
       const stats = await getDriverCareerStats(env, entity.id);
       if (stats) {
+        // ВАЖНО: stats.championships здесь ВСЕГДА null — этот кусок карьеры
+        // считает отдельный конвейер (cron/syncTitleProgress.ts), а не
+        // getDriverCareerStats. COALESCE ниже берёт уже посчитанное
+        // значение из строки, если оно там есть, и не даёт этому
+        // "базовому" обновлению (wins/podiums/poles/...) затереть его
+        // обратно в null при каждом плановом refresh (TTL 12ч в
+        // careerStatsService.ts, либо обычный цикл курсора). Без этого
+        // championships у каждого пилота периодически откатывался бы в
+        // null, а syncTitleProgress пересчитывал бы его заново с нуля —
+        // бесконечный цикл, впустую тративший подзапросы к Jolpica.
+        // Обнаружено 19.09.2026 при плановой сверке БД.
         await env.DB.prepare(
           `INSERT INTO driver_career (driver_id, data_json, updated_at) VALUES (?, ?, ?)
-           ON CONFLICT(driver_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`,
+           ON CONFLICT(driver_id) DO UPDATE SET
+             data_json = json_set(
+               excluded.data_json,
+               '$.championships',
+               COALESCE(json_extract(driver_career.data_json, '$.championships'), json_extract(excluded.data_json, '$.championships'))
+             ),
+             updated_at = excluded.updated_at`,
         )
           .bind(entity.id, JSON.stringify(stats), nowIso)
           .run();
@@ -149,9 +166,16 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
     } else if (entity.kind === "constructor") {
       const stats = await getConstructorCareerStats(env, entity.id);
       if (stats) {
+        // Та же защита, что у пилотов выше — см. комментарий там.
         await env.DB.prepare(
           `INSERT INTO constructor_career (constructor_id, data_json, updated_at) VALUES (?, ?, ?)
-           ON CONFLICT(constructor_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`,
+           ON CONFLICT(constructor_id) DO UPDATE SET
+             data_json = json_set(
+               excluded.data_json,
+               '$.championships',
+               COALESCE(json_extract(constructor_career.data_json, '$.championships'), json_extract(excluded.data_json, '$.championships'))
+             ),
+             updated_at = excluded.updated_at`,
         )
           .bind(entity.id, JSON.stringify(stats), nowIso)
           .run();
