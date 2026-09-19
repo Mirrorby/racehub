@@ -1,5 +1,5 @@
 import type { Env } from "../env";
-import { recomputeWeekendStatus } from "../mappers/raceWeekend";
+import { recomputeWeekendStatus, applyCancellation } from "../mappers/raceWeekend";
 import type { PracticeResultEntry, QualifyingResultEntry, RaceDetailResponse, RaceResultEntry, RaceWeekend } from "../types";
 
 interface SeasonRaceRow {
@@ -9,6 +9,10 @@ interface SeasonRaceRow {
   sprint_json: string | null;
   practice_json: string | null;
   sprint_quali_json: string | null;
+}
+
+interface OverrideRow {
+  cancelled: number;
 }
 
 function parseOrNull<T>(raw: string | null): T | null {
@@ -26,17 +30,22 @@ function parseOrNull<T>(raw: string | null): T | null {
  * последовательно и по расписанию (см. cron/syncRoundResults.ts — та же
  * логика выбора OpenF1 fast-path/Jolpica-фолбэка, но не на каждый заход
  * пользователя, а в фоне) — здесь только чтение и пересборка формы ответа.
+ * applyCancellation — курируемая отмена, см. services/calendarService.ts.
  */
 export async function getRaceDetail(env: Env, id: string): Promise<RaceDetailResponse | null> {
-  const row = await env.DB.prepare(
-    `SELECT weekend_json, race_results_json, qualifying_json, sprint_json, practice_json, sprint_quali_json
-     FROM season_races WHERE race_id = ?`,
-  )
-    .bind(id)
-    .first<SeasonRaceRow>();
+  const [row, override] = await Promise.all([
+    env.DB.prepare(
+      `SELECT weekend_json, race_results_json, qualifying_json, sprint_json, practice_json, sprint_quali_json
+       FROM season_races WHERE race_id = ?`,
+    )
+      .bind(id)
+      .first<SeasonRaceRow>(),
+    env.DB.prepare("SELECT cancelled FROM race_overrides WHERE race_id = ?").bind(id).first<OverrideRow>(),
+  ]);
   if (!row) return null;
 
-  const weekend = recomputeWeekendStatus(JSON.parse(row.weekend_json) as RaceWeekend, new Date());
+  let weekend = recomputeWeekendStatus(JSON.parse(row.weekend_json) as RaceWeekend, new Date());
+  weekend = applyCancellation(weekend, override?.cancelled === 1);
 
   return {
     weekend,

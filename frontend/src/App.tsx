@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { telegram, isRunningInTelegram, getRawInitData } from "./telegram/webApp";
 import { applyTheme, subscribeToTelegramThemeChanges } from "./telegram/theme";
 import { authenticateWithTelegram } from "./api/auth";
-import { ApiError, API_BASE_URL, setSessionToken } from "./api/client";
+import { ApiError, API_BASE_URL, getSessionToken, setSessionToken } from "./api/client";
 import { Splash } from "./pages/Splash";
 import { Home } from "./pages/Home";
 import { Calendar } from "./pages/Calendar";
@@ -70,6 +70,17 @@ export function App() {
         // Разработка вне Telegram (обычный браузер) — не блокируем экран,
         // но и не притворяемся авторизованными.
         setStatus("not_in_telegram");
+        return;
+      }
+
+      // Токен уже есть с прошлого запуска (см. api/client.ts — теперь
+      // персистится в localStorage, TTL на бэкенде 30 дней) — не тратим
+      // лишний /auth/telegram и не плодим новую строку в sessions на
+      // каждое сворачивание/разворачивание Mini App. Если он всё же
+      // просрочен, apiFetch сам перелогинится на первом же запросе (см.
+      // api/client.ts::reauthenticate).
+      if (getSessionToken()) {
+        setStatus("ready");
         return;
       }
 

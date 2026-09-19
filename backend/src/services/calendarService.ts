@@ -1,10 +1,19 @@
 import type { Env } from "../env";
-import { recomputeWeekendStatus } from "../mappers/raceWeekend";
+import { recomputeWeekendStatus, applyCancellation } from "../mappers/raceWeekend";
 import type { RaceWeekend } from "../types";
 
 interface SeasonRaceRow {
   season: number;
   weekend_json: string;
+}
+
+interface OverrideRow {
+  race_id: string;
+}
+
+async function loadCancelledRaceIds(env: Env): Promise<Set<string>> {
+  const { results } = await env.DB.prepare("SELECT race_id FROM race_overrides WHERE cancelled = 1").all<OverrideRow>();
+  return new Set((results ?? []).map((row) => row.race_id));
 }
 
 /**
@@ -16,13 +25,21 @@ interface SeasonRaceRow {
  * Статусы сессий/уик-энда в сохранённом JSON могут отставать от
  * реальности на время между тиками cron (до 15 минут) — recomputeWeekendStatus
  * пересчитывает их от уже сохранённых времён начала сессий, не делая
- * никаких дополнительных запросов.
+ * никаких дополнительных запросов. applyCancellation поверх — курируемая
+ * отмена (см. db/migrations/0006_race_overrides.sql), которую Jolpica не
+ * умеет сообщить сама.
  */
 export async function getSeasonCalendar(env: Env): Promise<{ season: number; races: RaceWeekend[] }> {
-  const { results } = await env.DB.prepare("SELECT season, weekend_json FROM season_races ORDER BY round ASC").all<SeasonRaceRow>();
+  const [{ results }, cancelledIds] = await Promise.all([
+    env.DB.prepare("SELECT season, weekend_json FROM season_races ORDER BY round ASC").all<SeasonRaceRow>(),
+    loadCancelledRaceIds(env),
+  ]);
   const rows = results ?? [];
   const now = new Date();
-  const races = rows.map((row) => recomputeWeekendStatus(JSON.parse(row.weekend_json) as RaceWeekend, now));
+  const races = rows.map((row) => {
+    const weekend = recomputeWeekendStatus(JSON.parse(row.weekend_json) as RaceWeekend, now);
+    return applyCancellation(weekend, cancelledIds.has(weekend.id));
+  });
   const season = rows[0]?.season ?? now.getUTCFullYear();
   return { season, races };
 }

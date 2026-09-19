@@ -113,3 +113,14 @@ export function recomputeWeekendStatus(weekend: RaceWeekend, now: Date = new Dat
   }));
   return { ...weekend, sessions, status: weekendStatus(sessions) };
 }
+
+/**
+ * Курируемая отмена (см. db/migrations/0006_race_overrides.sql) — вызывать
+ * ПОСЛЕ recomputeWeekendStatus, она принудительно затирает вычисленные
+ * статусы. Jolpica не даёt сигнала отмены сама, вносится вручную.
+ */
+export function applyCancellation(weekend: RaceWeekend, cancelled: boolean): RaceWeekend {
+  if (!cancelled) return weekend;
+  const sessions = weekend.sessions.map((session) => ({ ...session, status: "cancelled" as const }));
+  return { ...weekend, sessions, status: "cancelled" };
+}

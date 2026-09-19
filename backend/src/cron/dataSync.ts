@@ -9,6 +9,7 @@ import { syncActiveRounds } from "./syncActiveRounds";
 import { backfillOlderRounds } from "./backfillOlderRounds";
 import { syncNextEntity } from "./syncEntityRoundRobin";
 import { syncTitleProgress } from "./syncTitleProgress";
+import { runCleanup } from "./cleanup";
 import { getSeasonCalendar } from "../services/calendarService";
 
 const HOT_KEY = "hot_sync";
@@ -80,6 +81,14 @@ export async function runDataSync(env: Env): Promise<void> {
     await syncTitleProgress(env, budget);
   } catch (err) {
     console.error(`runDataSync: syncTitleProgress failed (${errorReason(err)})`);
+  }
+
+  // Чистка sessions/notification_log — чистое D1 (без подзапросов к
+  // апстриму), бюджет ей не нужен; внутри сама себя гейтит раз в сутки.
+  try {
+    await runCleanup(env);
+  } catch (err) {
+    console.error(`runDataSync: runCleanup failed (${errorReason(err)})`);
   }
 
   console.log(`runDataSync: tick complete, subrequest budget left = ${budget.left}`);

@@ -31,11 +31,17 @@ interface PendingRow {
  * восстанавливающийся подход: если синк раунда упал на середине — тот
  * же раунд снова попадёт в выборку на следующем тике, без ручного
  * управления курсором.
+ *
+ * NOT EXISTS по race_overrides — курируемая отмена (см.
+ * db/migrations/0006_race_overrides.sql) исключает раунд из очереди:
+ * для реально отменённой гонки результатов не будет никогда, без этого
+ * условия backfill вечно пытался бы её "дотянуть".
  */
 export async function backfillOlderRounds(env: Env, budget: SubrequestBudget): Promise<void> {
   const { results } = await env.DB.prepare(
     `SELECT race_id, weekend_json FROM season_races
      WHERE json_extract(weekend_json, '$.status') = 'completed'
+       AND NOT EXISTS (SELECT 1 FROM race_overrides ro WHERE ro.race_id = season_races.race_id AND ro.cancelled = 1)
        AND (
          race_results_json IS NULL
          OR qualifying_json IS NULL
