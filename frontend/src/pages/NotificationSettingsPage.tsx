@@ -4,17 +4,19 @@ import { Spinner } from "../components/Spinner";
 import { ErrorState } from "../components/ErrorState";
 import { useBootstrap } from "../hooks/useBootstrap";
 import { useUpdateNotificationSettings } from "../hooks/useUpdateNotificationSettings";
+import { useI18n } from "../i18n/I18nContext";
 import type { NotificationSettings } from "../types/domain";
 
 interface CategoryRowProps {
   label: string;
+  minBeforeLabel: string;
   enabled: boolean;
   minutesBefore: number;
   onEnabledChange: (value: boolean) => void;
   onMinutesChange: (value: number) => void;
 }
 
-function CategoryRow({ label, enabled, minutesBefore, onEnabledChange, onMinutesChange }: CategoryRowProps) {
+function CategoryRow({ label, minBeforeLabel, enabled, minutesBefore, onEnabledChange, onMinutesChange }: CategoryRowProps) {
   return (
     <div className="rh-row" style={{ alignItems: "center" }}>
       <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
@@ -31,7 +33,7 @@ function CategoryRow({ label, enabled, minutesBefore, onEnabledChange, onMinutes
             onChange={(e) => onMinutesChange(Math.max(0, Math.min(1440, Number(e.target.value) || 0)))}
             style={{ width: 56 }}
           />
-          min before
+          {minBeforeLabel}
         </label>
       )}
     </div>
@@ -40,6 +42,7 @@ function CategoryRow({ label, enabled, minutesBefore, onEnabledChange, onMinutes
 
 export function NotificationSettingsPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { data, isLoading, isError, refetch } = useBootstrap();
   const mutation = useUpdateNotificationSettings();
 
@@ -61,7 +64,7 @@ export function NotificationSettingsPage() {
   }
 
   return (
-      <div className="rh-content"><div className="pp-wordmark">Podium Pulse</div><h1 className="pp-page-title">Notifications</h1>
+      <div className="rh-content"><div className="pp-wordmark">Podium Pulse</div><h1 className="pp-page-title">{t("notifications")}</h1>
         {isLoading && !draft && (
           <Spinner />
         )}
@@ -73,35 +76,39 @@ export function NotificationSettingsPage() {
             <div className="rh-card">
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 600 }}>
                 <input type="checkbox" checked={draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-                All notifications
+                {t("allNotifications")}
               </label>
             </div>
 
-            <div className="rh-section-title">Before each session</div>
+            <div className="rh-section-title">{t("beforeEachSession")}</div>
             <div className="rh-card" style={{ opacity: draft.enabled ? 1 : 0.5, pointerEvents: draft.enabled ? "auto" : "none" }}>
               <CategoryRow
-                label="Race"
+                label={t("race")}
+                minBeforeLabel={t("minBefore")}
                 enabled={draft.raceEnabled}
                 minutesBefore={draft.raceMinutesBefore}
                 onEnabledChange={(v) => patch({ raceEnabled: v })}
                 onMinutesChange={(v) => patch({ raceMinutesBefore: v })}
               />
               <CategoryRow
-                label="Qualifying"
+                label={t("qualifying")}
+                minBeforeLabel={t("minBefore")}
                 enabled={draft.qualifyingEnabled}
                 minutesBefore={draft.qualifyingMinutesBefore}
                 onEnabledChange={(v) => patch({ qualifyingEnabled: v })}
                 onMinutesChange={(v) => patch({ qualifyingMinutesBefore: v })}
               />
               <CategoryRow
-                label="Sprint"
+                label={t("sprint")}
+                minBeforeLabel={t("minBefore")}
                 enabled={draft.sprintEnabled}
                 minutesBefore={draft.sprintMinutesBefore}
                 onEnabledChange={(v) => patch({ sprintEnabled: v })}
                 onMinutesChange={(v) => patch({ sprintMinutesBefore: v })}
               />
               <CategoryRow
-                label="Practice"
+                label={t("practice")}
+                minBeforeLabel={t("minBefore")}
                 enabled={draft.practiceEnabled}
                 minutesBefore={draft.practiceMinutesBefore}
                 onEnabledChange={(v) => patch({ practiceEnabled: v })}
@@ -109,12 +116,12 @@ export function NotificationSettingsPage() {
               />
             </div>
 
-            <div className="rh-section-title">Results</div>
+            <div className="rh-section-title">{t("results")}</div>
             <div className="rh-card" style={{ opacity: draft.enabled ? 1 : 0.5, pointerEvents: draft.enabled ? "auto" : "none" }}>
               <label className="rh-row" style={{ cursor: "pointer" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <input type="checkbox" checked={draft.resultsEnabled} onChange={(e) => patch({ resultsEnabled: e.target.checked })} />
-                  Race results
+                  {t("raceResults")}
                 </span>
               </label>
               <label className="rh-row" style={{ cursor: "pointer" }}>
@@ -124,7 +131,7 @@ export function NotificationSettingsPage() {
                     checked={draft.favoriteDriverResultEnabled}
                     onChange={(e) => patch({ favoriteDriverResultEnabled: e.target.checked })}
                   />
-                  Favourite driver's result
+                  {t("favoriteDriverResult")}
                 </span>
               </label>
               <label className="rh-row" style={{ cursor: "pointer" }}>
@@ -134,23 +141,24 @@ export function NotificationSettingsPage() {
                     checked={draft.championshipChangeEnabled}
                     onChange={(e) => patch({ championshipChangeEnabled: e.target.checked })}
                   />
-                  Championship lead changes
+                  {t("championshipLeadChanges")}
                 </span>
               </label>
             </div>
-            <p className="rh-disclaimer">
-              Results-based notifications aren't sent yet — this data feed is still on the roadmap. Session
-              reminders above are already active.
-            </p>
+            {/* Раньше здесь был disclaimer "Results-based notifications aren't
+                sent yet" — неправда уже давно: notifications/resultNotifications.ts
+                реализован и вызывается по своему scheduled-триггеру. Обнаружено
+                16.09.2026 при аудите, убрано полностью — переключатели выше
+                говорят сами за себя. */}
 
             {mutation.isError && (
               <p style={{ color: "var(--rh-danger, #e5484d)", fontSize: 13, marginBottom: 8 }}>
-                Couldn't save — check your connection and try again.
+                {t("saveFailed")}
               </p>
             )}
 
             <button className="rh-btn-primary" onClick={save} disabled={mutation.isPending}>
-              {mutation.isPending ? "Saving…" : "Save"}
+              {mutation.isPending ? t("saving") : t("save")}
             </button>
           </>
         )}

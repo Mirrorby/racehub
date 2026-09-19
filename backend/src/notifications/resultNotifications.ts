@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { deliverNotification } from "../lib/telegramBot";
 import { getMostRecentStartedRace } from "../services/calendarService";
 import { getRaceDetail } from "../services/raceDetailService";
+import { formatRaceResultsMessage, formatFavoriteDriverMessage, formatChampionshipLeaderMessage, type NotificationLang } from "./messages";
 import type { RaceResultEntry, RaceWeekend, Standing } from "../types";
 
 const CHAMPIONSHIP_LEADER_STATE_KEY = "championship_leader_driver_id";
@@ -9,6 +10,7 @@ const CHAMPIONSHIP_LEADER_STATE_KEY = "championship_leader_driver_id";
 interface NotifiableUser {
   id: string;
   telegram_user_id: number;
+  language: NotificationLang;
 }
 
 interface DriverFanUser extends NotifiableUser {
@@ -36,25 +38,18 @@ async function claimNotification(env: Env, userId: string, key: string): Promise
     .run();
 }
 
-function isClassified(entry: RaceResultEntry): boolean {
-  return entry.status === "Finished" || entry.status.startsWith("+");
-}
-
 async function notifyRaceResults(env: Env, weekend: RaceWeekend, results: RaceResultEntry[]): Promise<void> {
   const users = await env.DB.prepare(
-    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id
+    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, COALESCE(up.language, 'en') AS language
      FROM users u
      JOIN notification_settings ns ON ns.user_id = u.id
+     LEFT JOIN user_preferences up ON up.user_id = u.id
      WHERE ns.enabled = 1 AND ns.results_enabled = 1`,
   ).all<NotifiableUser>();
 
   if (!users.results || users.results.length === 0) return;
 
-  const podium = results
-    .slice(0, 3)
-    .map((entry, i) => `${i + 1}. ${entry.driver.fullName}`)
-    .join("\n");
-  const message = `🏁 <b>${weekend.name}</b> — results are in!\n\n${podium}`;
+  const top3 = results.slice(0, 3);
   const key = `results:${weekend.id}:race`;
 
   for (const user of users.results) {
@@ -63,6 +58,7 @@ async function notifyRaceResults(env: Env, weekend: RaceWeekend, results: RaceRe
     // claim до отправки означал безвозвратную потерю уведомления при
     // любом транзиентном сбое Telegram API. Обнаружено 16.09.2026.
     if (await wasAlreadySent(env, user.id, key)) continue;
+    const message = formatRaceResultsMessage(user.language, weekend, top3);
     const delivered = await deliverNotification(env, user.id, user.telegram_user_id, message);
     if (delivered) await claimNotification(env, user.id, key);
   }
@@ -70,7 +66,8 @@ async function notifyRaceResults(env: Env, weekend: RaceWeekend, results: RaceRe
 
 async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, results: RaceResultEntry[]): Promise<void> {
   const users = await env.DB.prepare(
-    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, up.favorite_driver_id AS favorite_driver_id
+    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, up.favorite_driver_id AS favorite_driver_id,
+            COALESCE(up.language, 'en') AS language
      FROM users u
      JOIN notification_settings ns ON ns.user_id = u.id
      JOIN user_preferences up ON up.user_id = u.id
@@ -86,9 +83,7 @@ async function notifyFavoriteDriverResult(env: Env, weekend: RaceWeekend, result
     if (!entry) continue; // не участвовал в этой гонке (замена, отсутствие и т.п.)
     if (await wasAlreadySent(env, user.id, key)) continue;
 
-    const text = isClassified(entry)
-      ? `🏎️ ${entry.driver.fullName} finished <b>P${entry.position}</b> at ${weekend.name} (+${entry.points} pts).`
-      : `🏎️ ${entry.driver.fullName} didn't finish ${weekend.name}: ${entry.status}.`;
+    const text = formatFavoriteDriverMessage(user.language, weekend, entry);
     const delivered = await deliverNotification(env, user.id, user.telegram_user_id, text);
     if (delivered) await claimNotification(env, user.id, key);
   }
@@ -142,19 +137,20 @@ async function notifyChampionshipLeaderChange(env: Env, weekend: RaceWeekend): P
   if (previousLeaderId === null) return;
 
   const users = await env.DB.prepare(
-    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id
+    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, COALESCE(up.language, 'en') AS language
      FROM users u
      JOIN notification_settings ns ON ns.user_id = u.id
+     LEFT JOIN user_preferences up ON up.user_id = u.id
      WHERE ns.enabled = 1 AND ns.championship_change_enabled = 1`,
   ).all<NotifiableUser>();
 
   if (!users.results || users.results.length === 0) return;
 
-  const message = `👑 New championship leader: <b>${leader.driver.fullName}</b> (${leader.points} pts) after ${weekend.name}.`;
   const key = `leader-change:${weekend.id}`;
 
   for (const user of users.results) {
     if (await wasAlreadySent(env, user.id, key)) continue;
+    const message = formatChampionshipLeaderMessage(user.language, weekend, leader);
     const delivered = await deliverNotification(env, user.id, user.telegram_user_id, message);
     if (delivered) await claimNotification(env, user.id, key);
   }

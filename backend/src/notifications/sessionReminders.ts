@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { getSeasonCalendar } from "../services/calendarService";
 import { deliverNotification } from "../lib/telegramBot";
+import { formatSessionReminder, type NotificationLang } from "./messages";
 import type { RaceWeekend, Session, SessionType } from "../types";
 
 /**
@@ -32,22 +33,7 @@ interface CandidateUser {
   id: string;
   telegram_user_id: number;
   minutes_before: number;
-}
-
-function sessionEmoji(type: SessionType): string {
-  if (type === "race") return "🏁";
-  if (type === "qualifying" || type === "sprint_quali") return "⏱️";
-  if (type === "sprint") return "🚀";
-  return "🔧";
-}
-
-function formatMessage(weekend: RaceWeekend, session: Session, minutesBefore: number): string {
-  const emoji = sessionEmoji(session.type);
-  return (
-    `${emoji} <b>${weekend.name}</b>\n` +
-    `${session.label} starts in ${minutesBefore} min.\n` +
-    `📍 ${weekend.circuit}, ${weekend.city}`
-  );
+  language: NotificationLang;
 }
 
 /**
@@ -67,9 +53,11 @@ async function processSession(env: Env, weekend: RaceWeekend, session: Session, 
   // категория, и при этом их персональный minutes_before уже наступил
   // (now >= start - minutes_before), но сессия ещё не началась.
   const candidates = await env.DB.prepare(
-    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, ns.${minutesCol} AS minutes_before
+    `SELECT u.id AS id, u.telegram_user_id AS telegram_user_id, ns.${minutesCol} AS minutes_before,
+            COALESCE(up.language, 'en') AS language
      FROM users u
      JOIN notification_settings ns ON ns.user_id = u.id
+     LEFT JOIN user_preferences up ON up.user_id = u.id
      WHERE ns.enabled = 1 AND ns.${enabledCol} = 1
        AND datetime(?) >= datetime(?, '-' || ns.${minutesCol} || ' minutes')`,
   )
@@ -95,7 +83,7 @@ async function processSession(env: Env, weekend: RaceWeekend, session: Session, 
       env,
       user.id,
       user.telegram_user_id,
-      formatMessage(weekend, session, user.minutes_before),
+      formatSessionReminder(user.language, weekend, session, user.minutes_before),
     );
     if (!delivered) continue;
 
