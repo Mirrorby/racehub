@@ -1,4 +1,3 @@
-
 import type { Env } from "../env";
 import { errorReason } from "../lib/errors";
 import { sleep } from "../lib/pace";
@@ -91,17 +90,44 @@ async function processEntity(
   }
 }
 
+const LAST_KIND_KEY = "titles_last_kind";
+
+/**
+ * Раньше здесь всегда сначала проверялся пилот и только при ПОЛНОМ
+ * отсутствии должников-пилотов очередь доходила до конструкторов. Пока
+ * пилотов-должников было много (а из-за бага перезаписи championships —
+ * см. cron/syncEntityRoundRobin.ts, исправлено 19.09.2026 — их было
+ * почти всегда 13 из 22), конструкторы НИ РАЗУ не получали тик: по факту
+ * в проде на 20.09.2026 — driver_career дожат до 21/22, а
+ * constructor_career так и остался 0/11 (championships), хотя остальная
+ * их статистика (wins и т.п.) свежая и верная — просто титулам ни разу
+ * не выпала очередь. Обнаружено при плановой сверке БД. Теперь строго
+ * чередуем: кто не выбирался последним, тот и в приоритете на этот тик.
+ */
+async function pickNextPending(env: Env): Promise<{ kind: "driver" | "constructor"; id: string } | null> {
+  const lastKind = await getAppState(env, LAST_KIND_KEY);
+  const preferred: "driver" | "constructor" = lastKind === "driver" ? "constructor" : "driver";
+  const other: "driver" | "constructor" = preferred === "driver" ? "constructor" : "driver";
+
+  const preferredId = preferred === "driver" ? await findPendingDriver(env) : await findPendingConstructor(env);
+  if (preferredId) return { kind: preferred, id: preferredId };
+
+  const otherId = other === "driver" ? await findPendingDriver(env) : await findPendingConstructor(env);
+  if (otherId) return { kind: other, id: otherId };
+
+  return null;
+}
+
 /**
  * Титулы пилота/команды считаются по сезонам ("кто был первым в
  * standings того сезона") отдельно от остальной карьерной статистики
  * (wins/podiums/poles/points — те считаются в careerStatsService.ts,
  * там же объяснение, почему подсчёт разнесён на два конвейера). Каждый
- * тик обрабатывает ОДНУ сущность (приоритет — у той, что ещё не начата
- * или начата раньше других) и не больше SEASONS_PER_TICK сезонов для
- * неё, сохраняя прогресс в app_state между тиками. Само-восстанавливается
- * запросом "у кого championships ещё null" — как backfillOlderRounds для
- * раундов, а не ручным курсором: упавший на середине тик просто
- * продолжится с того же места на следующем.
+ * тик обрабатывает ОДНУ сущность и не больше SEASONS_PER_TICK сезонов
+ * для неё, сохраняя прогресс в app_state между тиками. Само-
+ * восстанавливается запросом "у кого championships ещё null" — как
+ * backfillOlderRounds для раундов, а не ручным курсором: упавший на
+ * середине тик просто продолжится с того же места на следующем.
  */
 export async function syncTitleProgress(env: Env, budget: SubrequestBudget): Promise<void> {
   // SEASONS_PER_TICK + запас на entitySeasons (обычно из api_cache, но не
@@ -109,32 +135,31 @@ export async function syncTitleProgress(env: Env, budget: SubrequestBudget): Pro
   if (!budget.tryConsume(SEASONS_PER_TICK + 2)) return;
 
   try {
-    const driverId = await findPendingDriver(env);
-    if (driverId) {
+    const pending = await pickNextPending(env);
+    if (!pending) return;
+
+    if (pending.kind === "driver") {
       await processEntity(
         env,
         "driver",
-        driverId,
+        pending.id,
         "driver_career",
         "driver_id",
-        () => jolpica.getEntitySeasons(`/drivers/${driverId}`),
-        (season) => jolpica.getDriverSeasonPosition(season, driverId),
+        () => jolpica.getEntitySeasons(`/drivers/${pending.id}`),
+        (season) => jolpica.getDriverSeasonPosition(season, pending.id),
       );
-      return;
-    }
-
-    const constructorId = await findPendingConstructor(env);
-    if (constructorId) {
+    } else {
       await processEntity(
         env,
         "constructor",
-        constructorId,
+        pending.id,
         "constructor_career",
         "constructor_id",
-        () => jolpica.getEntitySeasons(`/constructors/${constructorId}`),
-        (season) => jolpica.getConstructorSeasonPosition(season, constructorId),
+        () => jolpica.getEntitySeasons(`/constructors/${pending.id}`),
+        (season) => jolpica.getConstructorSeasonPosition(season, pending.id),
       );
     }
+    await setAppState(env, LAST_KIND_KEY, pending.kind);
   } catch (err) {
     console.error(`syncTitleProgress: failed (${errorReason(err)})`);
   }
