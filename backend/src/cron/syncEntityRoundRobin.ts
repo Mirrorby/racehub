@@ -4,6 +4,7 @@ import { getAppState, setAppState } from "./appState";
 import { findLatestStartedRace } from "./raceWeekend";
 import { getDriverCareerStats, getConstructorCareerStats } from "../services/careerStatsService";
 import { getTrackHistory } from "../services/trackHistoryService";
+import { loadBaselineIds } from "./syncCareerFromResults";
 import { getLiveTeamColors, getLiveDriverMedia } from "../services/liveResultsService";
 import type { RaceWeekend, Standing } from "../types";
 import type { SubrequestBudget } from "./subrequestBudget";
@@ -134,6 +135,18 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
   const cursor = cursorRaw ? Number(cursorRaw) % queue.length : 0;
   const entity = missing ?? queue[cursor];
   const nowIso = new Date().toISOString();
+
+  // Карьеру пилотов/команд из career_baseline считает syncCareerFromResults
+  // (baseline + результаты в D1). Постраничный пересчёт через Jolpica для
+  // них не нужен и вреден: на командах он обрезался на 500 результатах и
+  // затирал верные цифры. Курсор двигаем и идём дальше без подзапросов.
+  if (!missing && (entity.kind === "driver" || entity.kind === "constructor")) {
+    const baselineIds = await loadBaselineIds(env);
+    if (baselineIds.has(`${entity.kind}:${entity.id}`)) {
+      await setAppState(env, CURSOR_KEY, String((cursor + 1) % queue.length));
+      return;
+    }
+  }
 
   try {
     if (entity.kind === "driver") {

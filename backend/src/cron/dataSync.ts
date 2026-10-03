@@ -9,6 +9,7 @@ import { syncActiveRounds } from "./syncActiveRounds";
 import { backfillOlderRounds } from "./backfillOlderRounds";
 import { syncNextEntity } from "./syncEntityRoundRobin";
 import { syncTitleProgress } from "./syncTitleProgress";
+import { syncCareerFromResults } from "./syncCareerFromResults";
 import { runCleanup } from "./cleanup";
 import { getSeasonCalendar } from "../services/calendarService";
 
@@ -57,6 +58,15 @@ export async function runDataSync(env: Env): Promise<void> {
     }
   } else {
     console.log(`runDataSync: hot data fresh enough (raceWeekend=${weekendNow}), skipping calendar/standings/active-round refresh`);
+  }
+
+  // Карьера пилотов/команд = baseline + результаты сезона из D1. Без
+  // подзапросов к апстриму, поэтому идёт каждый тик и подхватывает свежий
+  // результат гонки сразу, а не при следующем обороте round-robin.
+  try {
+    await syncCareerFromResults(env);
+  } catch (err) {
+    console.error(`runDataSync: syncCareerFromResults failed (${errorReason(err)})`);
   }
 
   await sleep(UPSTREAM_PACE_MS); // граница фаз — не даём последнему запросу active-rounds улететь впритык к первому запросу backfill'а
