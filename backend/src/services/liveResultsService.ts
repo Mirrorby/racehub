@@ -3,6 +3,7 @@ import { getOrRefresh } from "../lib/cache";
 import * as openf1 from "../providers/openf1";
 import { getDriverStandings, getConstructorStandings } from "../providers/jolpica";
 import type { RaceResultEntry, RaceWeekend, SessionType, Standing } from "../types";
+import { canonicalConstructorId, canonicalConstructorName } from "../lib/constructorIds";
 
 // Данные OpenF1 сами по себе появляются быстро (минуты после гонки), но
 // мы всё равно кэшируем на пару минут, чтобы не дёргать апстрим на
@@ -167,6 +168,110 @@ export function sortablePosition(row: openf1.RawOpenF1SessionResult): number {
   return row.position ?? UNRANKED_SORT_POSITION;
 }
 
+export interface KnownDriver {
+  id: string;
+  fullName: string;
+  constructor?: { id: string; name: string };
+}
+
+/**
+ * code (VER/HAM/...) -> {id, fullName, последняя известная команда} ИЗ D1:
+ * последние сохранённые standings и результаты трёх последних этапов.
+ * Заменяет сведение через живой запрос Jolpica /driverStandings (он был
+ * нужен на каждый тик результатов, ловил 429 и отдавал состояние ДО
+ * гонки). Ничего не запрашивает у апстрима.
+ */
+export async function buildKnownDriversFromD1(env: Env): Promise<Map<string, KnownDriver>> {
+  const index = new Map<string, KnownDriver>();
+
+  const st = await env.DB.prepare("SELECT data_json FROM standings_cache WHERE type = 'drivers' ORDER BY season DESC LIMIT 1").first<{
+    data_json: string;
+  }>();
+  if (st) {
+    for (const e of JSON.parse(st.data_json) as Standing[]) {
+      const code = e.driver?.code;
+      if (!code || !e.driver) continue;
+      const cid = e.driver.constructorId ?? e.constructor?.id;
+      index.set(code, {
+        id: e.driver.id,
+        fullName: e.driver.fullName,
+        constructor: cid ? { id: canonicalConstructorId(cid), name: canonicalConstructorName(cid) ?? e.driver.constructorName ?? e.constructor?.name ?? cid } : undefined,
+      });
+    }
+  }
+
+  // Результаты последних этапов — новее и покрывают замены/резервистов,
+  // которых нет в standings. Идём от старого к новому: новое перезаписывает.
+  const { results } = await env.DB.prepare(
+    "SELECT race_results_json FROM season_races WHERE race_results_json IS NOT NULL ORDER BY season DESC, round DESC LIMIT 3",
+  ).all<{ race_results_json: string }>();
+  for (const row of [...(results ?? [])].reverse()) {
+    for (const r of JSON.parse(row.race_results_json) as RaceResultEntry[]) {
+      const code = r.driver.code;
+      if (!code || r.driver.id.startsWith("openf1-")) continue;
+      index.set(code, {
+        id: r.driver.id,
+        fullName: r.driver.fullName,
+        constructor: { id: canonicalConstructorId(r.constructor.id), name: canonicalConstructorName(r.constructor.id) ?? r.constructor.name },
+      });
+    }
+  }
+  return index;
+}
+
+/**
+ * Команда пилота НА ЭТОМ ЭТАПЕ. Раньше брали «текущую» команду пилота из
+ * standings, поэтому при межсезонной/внутрисезонной пересадке (Lawson ↔
+ * Tsunoda/Hadjar) все его гонки приписывались новой команде.
+ *
+ * Здесь команда берётся из самой сессии OpenF1: пилоты с одинаковым
+ * team_name — одна команда. Какой это constructorId, определяем голосованием
+ * по тому, что мы уже знаем о составе (известные команды пилотов группы),
+ * причём один constructorId не может достаться двум группам: группа с
+ * однозначным составом занимает свой id первой, оставшаяся получает
+ * следующий по голосам. Названия команд из OpenF1 с названиями Jolpica
+ * не сравниваются (так уже ломалось, 4 из 11 команд не сводились).
+ */
+export function assignSessionConstructors(
+  sessionDrivers: Array<{ code: string; teamName: string }>,
+  known: Map<string, KnownDriver>,
+): Map<string, { id: string; name: string }> {
+  const groups = new Map<string, string[]>();
+  for (const d of sessionDrivers) {
+    const list = groups.get(d.teamName) ?? [];
+    list.push(d.code);
+    groups.set(d.teamName, list);
+  }
+
+  const names = new Map<string, string>();
+  const ranked = [...groups.entries()].map(([team, codes]) => {
+    const votes = new Map<string, number>();
+    for (const code of codes) {
+      const c = known.get(code)?.constructor;
+      if (!c) continue;
+      votes.set(c.id, (votes.get(c.id) ?? 0) + 1);
+      names.set(c.id, c.name);
+    }
+    const top = Math.max(0, ...votes.values());
+    return { team, codes, votes, share: top / codes.length };
+  });
+  ranked.sort((a, b) => b.share - a.share || b.codes.length - a.codes.length || a.team.localeCompare(b.team));
+
+  const claimed = new Set<string>();
+  const out = new Map<string, { id: string; name: string }>();
+  for (const g of ranked) {
+    const candidate = [...g.votes.entries()]
+      .filter(([id]) => !claimed.has(id))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    const assigned = candidate
+      ? { id: candidate[0], name: names.get(candidate[0]) ?? g.team }
+      : { id: normalizeTeamName(g.team).replace(/\s+/g, "_"), name: g.team };
+    if (candidate) claimed.add(candidate[0]);
+    for (const code of g.codes) out.set(code, assigned);
+  }
+  return out;
+}
+
 /**
  * Быстрые результаты гонки через OpenF1. Возвращает null (а не пустой
  * массив), если OpenF1 ещё не знает об этой сессии или результатов нет —
@@ -189,10 +294,11 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
     ]);
     if (results.length === 0) return null;
 
-    const [driverCodeIndex, driverConstructorIndex] = await Promise.all([
-      buildDriverCodeIndex(env),
-      buildDriverConstructorIndex(env),
-    ]);
+    const known = await buildKnownDriversFromD1(env);
+    const constructorByCode = assignSessionConstructors(
+      drivers.map((d) => ({ code: d.name_acronym, teamName: d.team_name })),
+      known,
+    );
 
     const driversByNumber = new Map(drivers.map((d) => [d.driver_number, d]));
     const gridByNumber = new Map(grid.map((g) => [g.driver_number, g.position]));
@@ -207,13 +313,13 @@ export async function getFastRaceResults(env: Env, weekend: RaceWeekend): Promis
         // сведение не удалось (совсем новый пилот, ещё не попавший в
         // закэшированные Jolpica-standings) — не роняем всю гонку, а
         // показываем данные под "сырым" id из OpenF1.
-        const driver = driverCodeIndex.get(driverMeta.name_acronym) ?? {
+        const driver = known.get(driverMeta.name_acronym) ?? {
           id: `openf1-${row.driver_number}`,
           fullName: driverMeta.full_name,
         };
         // Команда — тоже через код пилота (driverConstructorIndex), не
         // через сравнение team_name/Constructor.name как строк.
-        const constructor = driverConstructorIndex.get(driverMeta.name_acronym) ?? {
+        const constructor = constructorByCode.get(driverMeta.name_acronym) ?? {
           id: normalizeTeamName(driverMeta.team_name).replace(/\s+/g, "_"),
           name: driverMeta.team_name,
         };

@@ -148,6 +148,14 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
     }
   }
 
+  // Курсор двигаем ДО работы, а не после: на Workers Free тяжёлая сущность
+  // (например, история трассы) может упереться в лимит CPU и убить запуск
+  // посреди — тогда курсор навсегда застревал бы на ней. Приоритетный
+  // "missing" вне очереди курсор не сдвигает.
+  if (!missing) {
+    await setAppState(env, CURSOR_KEY, String((cursor + 1) % queue.length));
+  }
+
   try {
     if (entity.kind === "driver") {
       const stats = await getDriverCareerStats(env, entity.id);
@@ -228,12 +236,5 @@ export async function syncNextEntity(env: Env, races: RaceWeekend[], budget: Sub
     }
   } catch (err) {
     console.error(`syncNextEntity: failed for ${entity.kind}:${entity.id} (${errorReason(err)})`);
-  }
-
-  // Курсор двигаем только если реально обработали ЕГО элемент — обработка
-  // приоритетного "missing" вне очереди не должна сбивать цикл freshness-
-  // прохода по остальным сущностям.
-  if (!missing) {
-    await setAppState(env, CURSOR_KEY, String((cursor + 1) % queue.length));
   }
 }

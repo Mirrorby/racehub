@@ -4,142 +4,94 @@ import { sleep, UPSTREAM_PACE_MS } from "../lib/pace";
 import { getCurrentSeasonRaces, getDriverStandings, getConstructorStandings } from "../providers/jolpica";
 import { mapRaceWeekend } from "../mappers/raceWeekend";
 import { mapDriverStandings, mapConstructorStandings } from "../mappers/standings";
-import { getFastDriverStandings, getFastConstructorStandings } from "../services/liveResultsService";
-import { findLatestStartedRace } from "./raceWeekend";
 import type { RaceWeekend, Standing } from "../types";
 import type { SubrequestBudget } from "./subrequestBudget";
 
-interface TeamColorRow {
-  constructor_id: string;
-  color: string;
+/**
+ * Календарь сезона из Jolpica — раз в несколько часов, а не каждый тик.
+ *
+ * Статусы сессий (upcoming/live/completed) от календаря не зависят: они
+ * пересчитываются от времён начала при каждом чтении
+ * (services/calendarService.ts → recomputeWeekendStatus). Поэтому календарь
+ * нужен только затем, чтобы заметить перенос сессии, новый этап или
+ * смену названия, — и пишем только те этапы, у которых расписание
+ * реально изменилось (раньше на каждом тике перезаписывались все 24 строки).
+ *
+ * Результаты этапов эта функция НЕ трогает.
+ */
+
+export function scheduleKey(w: RaceWeekend): string {
+  return JSON.stringify([w.name, w.country, w.countryCode, w.city, w.circuit, w.circuitId, w.sessions.map((s) => [s.type, s.startUtc])]);
 }
 
-interface DriverMediaRow {
-  driver_id: string;
-  headshot_url: string | null;
-}
+/** true — был сетевой запрос (тяжёлая фаза). */
+export async function syncCalendar(env: Env, budget: SubrequestBudget, now: Date): Promise<boolean> {
+  if (!budget.tryConsume(2)) return false;
 
-interface WeekendRow {
-  weekend_json: string;
-}
+  const { season, races } = await getCurrentSeasonRaces();
+  const { results } = await env.DB.prepare("SELECT race_id, weekend_json FROM season_races WHERE season = ?")
+    .bind(season)
+    .all<{ race_id: string; weekend_json: string }>();
+  const stored = new Map((results ?? []).map((r) => [r.race_id, scheduleKey(JSON.parse(r.weekend_json) as RaceWeekend)]));
 
-async function loadRacesFromDb(env: Env): Promise<RaceWeekend[]> {
-  const { results } = await env.DB.prepare("SELECT weekend_json FROM season_races ORDER BY round ASC").all<WeekendRow>();
-  return (results ?? []).map((row) => JSON.parse(row.weekend_json) as RaceWeekend);
-}
-
-async function loadTeamColors(env: Env): Promise<Map<string, string>> {
-  const { results } = await env.DB.prepare("SELECT constructor_id, color FROM team_colors").all<TeamColorRow>();
-  return new Map((results ?? []).map((row) => [row.constructor_id, row.color]));
-}
-
-async function loadDriverMedia(env: Env): Promise<Map<string, string>> {
-  const { results } = await env.DB.prepare("SELECT driver_id, headshot_url FROM driver_media WHERE headshot_url IS NOT NULL").all<DriverMediaRow>();
-  return new Map((results ?? []).map((row) => [row.driver_id, row.headshot_url as string]));
-}
-
-async function writeStandings(env: Env, type: "drivers" | "constructors", season: number, standings: Standing[]): Promise<void> {
-  const nowIso = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO standings_cache (type, season, data_json, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(type, season) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`,
-  )
-    .bind(type, season, JSON.stringify(standings), nowIso)
-    .run();
+  const nowIso = now.toISOString();
+  let changed = 0;
+  for (const raw of races) {
+    const weekend = mapRaceWeekend(raw, now);
+    if (stored.get(weekend.id) === scheduleKey(weekend)) continue;
+    await env.DB.prepare(
+      `INSERT INTO season_races (race_id, season, round, circuit_id, weekend_json, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(race_id) DO UPDATE SET
+         weekend_json = excluded.weekend_json,
+         season = excluded.season,
+         round = excluded.round,
+         circuit_id = excluded.circuit_id,
+         updated_at = excluded.updated_at`,
+    )
+      .bind(weekend.id, weekend.season, weekend.round, weekend.circuitId, JSON.stringify(weekend), nowIso)
+      .run();
+    changed += 1;
+  }
+  console.log(`syncCalendar: season=${season}, races=${races.length}, changed=${changed}`);
+  return true;
 }
 
 /**
- * Обновляет календарь (ВСЕ раунды сезона — прошедшие, текущий и будущие)
- * и personal/constructors standings. Раунды, которых ещё нет в
- * season_races, создаются здесь же строкой с одним weekend_json и пустыми
- * результатами — это и есть очередь для backfillOlderRounds: как только
- * раунд попадает в календарь и проходит, он сам "всплывает" в выборке на
- * подтяжку результатов, без отдельного курсора.
- *
- * Standings: сперва пробуем OpenF1 fast-path (минуты после гонки), а не
- * сразу Jolpica batch (та по своим словам целится в "раз в неделю") — та
- * же логика, что раньше жила в routes/standings.ts на "горячем" пути
- * (routes/standings.ts::tryFastStandings), просто теперь она выполняется
- * в cron, а не на каждый заход пользователя. Именно эта задержка Jolpica
- * (а не 30-60 минут OpenF1) была одной из исходных жалоб в брифе — важно
- * было не потерять её при переносе.
+ * Запасной источник стендингов — ТОЛЬКО пока по сезону нет ни одного
+ * результата и таблицы ещё нет (начало сезона). Дальше стендинги считает
+ * syncDerivedFromResults из результатов в D1 и этот источник их не
+ * перезаписывает (Jolpica отстаёт от гонки на дни).
  */
-export async function syncCalendarAndStandings(env: Env, budget: SubrequestBudget): Promise<void> {
-  // 1 календарь + до ~6 на standings (fast-path сессия+championship+
-  // drivers на каждый из двух типов, с запасом на возможный Jolpica-фолбэк).
-  if (!budget.tryConsume(10)) return;
+export async function syncStandingsFallback(env: Env, budget: SubrequestBudget): Promise<boolean> {
+  const existing = await env.DB.prepare("SELECT COUNT(*) AS n FROM standings_cache").first<{ n: number }>();
+  if ((existing?.n ?? 0) > 0) return false;
+  if (!budget.tryConsume(2)) return false;
 
-  const now = new Date();
-  const nowIso = now.toISOString();
+  const [colors, media] = await Promise.all([
+    env.DB.prepare("SELECT constructor_id, color FROM team_colors").all<{ constructor_id: string; color: string }>(),
+    env.DB.prepare("SELECT driver_id, headshot_url FROM driver_media WHERE headshot_url IS NOT NULL").all<{ driver_id: string; headshot_url: string }>(),
+  ]);
+  const liveColors = new Map((colors.results ?? []).map((r) => [r.constructor_id, r.color]));
+  const driverMedia = new Map((media.results ?? []).map((r) => [r.driver_id, r.headshot_url]));
 
-  try {
-    const { season, races } = await getCurrentSeasonRaces();
-    for (const raw of races) {
-      const weekend = mapRaceWeekend(raw, now);
-      await env.DB.prepare(
-        `INSERT INTO season_races (race_id, season, round, circuit_id, weekend_json, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(race_id) DO UPDATE SET
-           weekend_json = excluded.weekend_json,
-           season = excluded.season,
-           round = excluded.round,
-           circuit_id = excluded.circuit_id,
-           updated_at = excluded.updated_at`,
-      )
-        .bind(weekend.id, weekend.season, weekend.round, weekend.circuitId, JSON.stringify(weekend), nowIso)
-        .run();
-    }
-    console.log(`syncCalendarAndStandings: calendar ok (season=${season}, races=${races.length})`);
-  } catch (err) {
-    console.error(`syncCalendarAndStandings: calendar sync failed (${errorReason(err)})`);
-  }
+  const write = async (type: "drivers" | "constructors", season: number, standings: Standing[]) => {
+    await env.DB.prepare(
+      `INSERT INTO standings_cache (type, season, data_json, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(type, season) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`,
+    )
+      .bind(type, season, JSON.stringify(standings), new Date().toISOString())
+      .run();
+  };
 
   try {
-    // Пауза перед первым запросом этой фазы — на случай, если сразу перед
-    // ней успел выполниться запрос календаря выше (та же причина, из-за
-    // которой без этой паузы в проде ловили 429 на constructorStandings:
-    // календарь + standings улетали практически одним залпом).
+    const drivers = await getDriverStandings();
+    await write("drivers", drivers.season, mapDriverStandings(drivers.standings, liveColors, driverMedia));
     await sleep(UPSTREAM_PACE_MS);
-
-    const races = await loadRacesFromDb(env);
-    const latestRace = findLatestStartedRace(races, now);
-    const liveColors = await loadTeamColors(env);
-    const driverMedia = await loadDriverMedia(env);
-
-    let driverStandings: Standing[] | null = null;
-    let constructorStandings: Standing[] | null = null;
-    let season: number | null = latestRace?.season ?? null;
-
-    if (latestRace) {
-      driverStandings = await getFastDriverStandings(env, latestRace).catch((err) => {
-        console.error(`syncCalendarAndStandings: OpenF1 fast driver standings failed (${errorReason(err)}), will fall back to Jolpica`);
-        return null;
-      });
-      await sleep(UPSTREAM_PACE_MS);
-      constructorStandings = await getFastConstructorStandings(env, latestRace).catch((err) => {
-        console.error(
-          `syncCalendarAndStandings: OpenF1 fast constructor standings failed (${errorReason(err)}), will fall back to Jolpica`,
-        );
-        return null;
-      });
-    }
-
-    if (!driverStandings) {
-      if (latestRace) await sleep(UPSTREAM_PACE_MS); // fast-path уже что-то успел запросить выше
-      const raw = await getDriverStandings();
-      season = raw.season;
-      driverStandings = mapDriverStandings(raw.standings, liveColors, driverMedia);
-    }
-    if (!constructorStandings) {
-      await sleep(UPSTREAM_PACE_MS);
-      const raw = await getConstructorStandings();
-      season = raw.season;
-      constructorStandings = mapConstructorStandings(raw.standings, liveColors);
-    }
-
-    await writeStandings(env, "drivers", season ?? now.getUTCFullYear(), driverStandings);
-    await writeStandings(env, "constructors", season ?? now.getUTCFullYear(), constructorStandings);
+    const constructors = await getConstructorStandings();
+    await write("constructors", constructors.season, mapConstructorStandings(constructors.standings, liveColors));
   } catch (err) {
-    console.error(`syncCalendarAndStandings: standings sync failed (${errorReason(err)})`);
+    console.error(`syncStandingsFallback: failed (${errorReason(err)})`);
   }
+  return true;
 }

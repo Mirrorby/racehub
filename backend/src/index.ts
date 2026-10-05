@@ -15,6 +15,8 @@ import { CORS_HEADERS, errorResponse, jsonResponse } from "./lib/http";
 import { UnauthorizedError } from "./lib/requireAuth";
 import { errorReason } from "./lib/errors";
 
+const DATA_SYNC_CRON = "1-56/5 * * * *"; // должен совпадать с wrangler.toml
+
 const router = Router();
 
 router.options("*", () => new Response(null, { status: 204, headers: CORS_HEADERS }));
@@ -59,14 +61,12 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    // "*/15 * * * *" — наполнение D1 (cron/dataSync.ts): календарь,
-    // standings, результаты этапов, карьерная статистика, история трасс,
-    // цвета команд. Отдельный триггер, а не расширение "*/5 * * * *" ниже:
-    // наполнение D1 может занимать заметно больше времени на тик (до
-    // десятка последовательных подзапросов с паузами, см.
-    // syncRoundResults.ts), и не должно откладывать/задерживать
+    // "1-56/5 * * * *" — наполнение D1 (cron/dataSync.ts): результаты
+    // этапов, стендинги и карьера из них, календарь, фоновые задания.
+    // Тикает каждые 5 минут со сдвигом на минуту — отдельный запуск (и
+    // отдельный лимит CPU) от "*/5 * * * *" ниже, чтобы не откладывать
     // time-sensitive напоминания о сессиях.
-    if (controller.cron === "*/15 * * * *") {
+    if (controller.cron === DATA_SYNC_CRON) {
       try {
         await runDataSync(env);
       } catch (err) {
